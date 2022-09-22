@@ -26,11 +26,6 @@ NumericVector hfn(NumericVector theta, int n_sources){
     
   }
   
-  
-  
-  
-  
-  
   return p;
   
 }
@@ -66,15 +61,15 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
   
   if(n_isotopes == 2){
-   
+
     
     // This is to get dnorm(y[,1], sum(p*q) etc) 
     double mutop1 = 0;
     double mubtm1 = 0;
     double mu1 = 0;
-    double sigma1 = 0;
-    double sigmatop1 = 0;
-    double sigmabtm1 = 0;
+    double sigmasq1 = 0;
+    double sigmatopsq1 = 0;
+    double sigmabtmsq1 = 0;
     
     // Calculate numerator and denominator of mu
     for(int i=0; i<n_sources; i++){
@@ -84,23 +79,24 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     // Same for sigma
     for(int i=0; i<n_sources; i++){ // sds
-      sigmatop1 += pow(p(i),2) * pow(concentrationmeans(i,0),2) * (pow(sourcesds(i,0),2) + 
+      sigmatopsq1 += pow(p(i),2) * pow(concentrationmeans(i,0),2) * (pow(sourcesds(i,0),2) + 
         pow(corrsds(i,0),2));
-      sigmabtm1 += pow(p(i),2) * pow(concentrationmeans(i,0),2);
+      sigmabtmsq1 += pow(p(i),2) * pow(concentrationmeans(i,0),2);
     }
     
     //Calculate mu and sd
     mu1 = mutop1/mubtm1;
-    sigma1 = sigmatop1/sigmabtm1;
+    sigmasq1 = sigmatopsq1/sigmabtmsq1;
+    double sigma1 = pow(sigmasq1, 0.5) + 1/theta(0, (n_isotopes));
     
     
     // This is to get dnorm(y[,2], sum(p*q) etc) 
     double mutop2 = 0;
     double mubtm2 = 0;
     double mu2 = 0;
-    double sigma2 = 0;
-    double sigmatop2 = 0;
-    double sigmabtm2 = 0;
+    double sigmasq2 = 0;
+    double sigmatopsq2 = 0;
+    double sigmabtmsq2 = 0;
     for(int i=0; i<n_sources; i++){
       mutop2 += p(i) * concentrationmeans(i,1) * (sourcemeans(i,1) + correctionmeans(i,1));
       mubtm2 += p(i) * concentrationmeans(i,1);
@@ -108,12 +104,14 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     
     for(int i=0; i<n_sources; i++){
-      sigmatop2 += pow(p(i),2) * pow(concentrationmeans(i,1),2) * (pow(sourcesds(i,1),2) + 
+      sigmatopsq2 += pow(p(i),2) * pow(concentrationmeans(i,1),2) * (pow(sourcesds(i,1),2) + 
         pow(corrsds(i,1),2));
-      sigmabtm2 += pow(p(i),2) * pow(concentrationmeans(i,1),2);
+      sigmabtmsq2 += pow(p(i),2) * pow(concentrationmeans(i,1),2);
     }
     mu2 = mutop2/mubtm2;
-    sigma2 = sigmatop2/sigmabtm2;
+    sigmasq2 = sigmatopsq2/sigmabtmsq2;
+    
+    double sigma2 = pow(sigmasq2, 0.5) + theta(0, 1+n_isotopes);
     
     double yminusmu1 = 0;
     double yminusmu2 = 0;
@@ -127,8 +125,10 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     // This is log(dnorm(y, p*q, p^2*q^2 etc) for y1 and y2
     
-    x = - ly * log(sigma1) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu1),2)) * 1/(2*(pow(sigma1,2))) 
-      - ly * log(sigma2) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu2),2)) * 1/(2*(pow(sigma2,2)));
+    x = - ly * log(sigma1) - 0.5 * ly * log(pow(M_PI,2)) 
+        - 0.5 * (pow((yminusmu1),2)) * 1/(pow(sigma1,2)) 
+        - ly * log(sigma2) - 0.5 * ly * log(pow(M_PI,2)) 
+        - 0.5 * (pow((yminusmu2),2)) * 1/(pow(sigma2,2));
     
 
       
@@ -138,7 +138,7 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     
     
-    //double pi = 3.14159;
+   
     
     // This is to get dnorm(y[,1], sum(p*q) etc)
     double mutop = 0;
@@ -178,7 +178,7 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     // This has y
     
-    x = - ly * log(mu) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu),2))* 1/(2*sigma_sq);
+    x = - ly * log(sigma) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu),2))* 1/(2*sigma_sq);
     
   }
   
