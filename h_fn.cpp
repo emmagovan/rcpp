@@ -1,24 +1,26 @@
 #include <Rcpp.h>
 using namespace Rcpp;
 
+
+// This function takes theta and calculates the proportions
 //[[Rcpp::export]]
 NumericVector hfn(NumericVector theta, int n_sources){
   NumericVector p(n_sources);
   NumericVector exptheta(n_sources);
   double sumexptheta =0;
   
-  
+  // gets exp of each theta
   for(int i = 0; i<n_sources; i++){
     exptheta(i) = exp(theta(i));
     
   }
   
-  
+  // calculates sum of all exp thetas
   for(int i =0; i<n_sources; i++){
     sumexptheta +=exptheta[i];
     
   }
-  
+  // calculates p
   for(int i = 0; i<n_sources; i++){
     p[i] = exptheta[i]/sumexptheta;
     
@@ -43,13 +45,16 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
 
   
   double ly = y.rows();
-  NumericVector prior_means(n_sources); //length???
+  
+  // Setting prior values for hyper parameters
+  NumericVector prior_means(n_sources); 
   NumericVector prior_sd(n_sources);
   NumericVector c_0(n_isotopes);
   NumericVector d_0(n_isotopes);
   
   // Setting up prior values
   for(int i=0; i<n_sources; i++){
+    // mean was zero - this caused problems below when I needed to take the log of the mean
     prior_means(i) = 1;
     prior_sd(i) = 1;
     }
@@ -61,26 +66,30 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
   
   if(n_isotopes == 2){
-    //double pi = 3.14159;
+   
     
-    // This is to get dnorm(y[,1], sum(p*q) etc) and for y[,2] as well
+    // This is to get dnorm(y[,1], sum(p*q) etc) 
     double mutop1 = 0;
     double mubtm1 = 0;
     double mu1 = 0;
     double sigma1 = 0;
     double sigmatop1 = 0;
     double sigmabtm1 = 0;
+    
+    // Calculate numerator and denominator of mu
     for(int i=0; i<n_sources; i++){
       mutop1 += p(i) * concentrationmeans(i,0) * (sourcemeans(i,0) + correctionmeans(i,0));
       mubtm1 += p(i) * concentrationmeans(i,0);
     }
     
-    
+    // Same for sigma
     for(int i=0; i<n_sources; i++){ // sds
       sigmatop1 += pow(p(i),2) * pow(concentrationmeans(i,0),2) * (pow(sourcesds(i,0),2) + 
         pow(corrsds(i,0),2));
       sigmabtm1 += pow(p(i),2) * pow(concentrationmeans(i,0),2);
     }
+    
+    //Calculate mu and sd
     mu1 = mutop1/mubtm1;
     sigma1 = sigmatop1/sigmabtm1;
     
@@ -116,10 +125,10 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     
     
-    // This has y1 and y2 so far, just need to add the rest
+    // This is log(dnorm(y, p*q, p^2*q^2 etc) for y1 and y2
     
-    x = - ly * log(sigma1) - 0.5 * log(pow(M_PI,2)) - (pow((yminusmu1),2)) * 1/(2*(pow(sigma1,2))) 
-      - ly * log(sigma2) - 0.5 * log(pow(M_PI,2)) - (pow((yminusmu2),2)) * 1/(2*(pow(sigma2,2)));
+    x = - ly * log(sigma1) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu1),2)) * 1/(2*(pow(sigma1,2))) 
+      - ly * log(sigma2) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu2),2)) * 1/(2*(pow(sigma2,2)));
     
 
       
@@ -131,24 +140,28 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     //double pi = 3.14159;
     
-    // This is to get dnorm(y[,1], sum(p*q) etc) and for y[,2] as well
+    // This is to get dnorm(y[,1], sum(p*q) etc)
     double mutop = 0;
     double mubtm = 0;
     double mu = 0;
     double sigma = 0;
     double sigmatop = 0;
     double sigmabtm = 0;
+    
+    // calculate mu numerator and denominator
     for(int i=0; i<n_sources; i++){
       mutop += p(i) * concentrationmeans(i,0) * (sourcemeans(i,0) + correctionmeans(i,0));
       mubtm += p(i) * concentrationmeans(i,0);
     }
     
-    
+    // same for sigma
     for(int i=0; i<n_sources; i++){
       sigmatop += pow(p(i),2) * pow(concentrationmeans(i,0),2) * (pow(sourcesds(i,0),2) + 
         pow(corrsds(i,0),2));
       sigmabtm += pow(p(i),2) * pow(concentrationmeans(i,0),2);
     }
+    
+    //Calculate mu and sd
     mu = mutop/mubtm;
     sigma = sigmatop/sigmabtm;
     double sigma_sq = pow(sigma,2);
@@ -165,7 +178,7 @@ List hcpp(NumericVector p, int n_sources, int n_isotopes,
     
     // This has y
     
-    x = - ly * log(mu) - 0.5 * log(pow(M_PI,2)) - (pow((yminusmu),2))* 1/(2*sigma_sq);
+    x = - ly * log(mu) - 0.5 * ly * log(pow(M_PI,2)) - (pow((yminusmu),2))* 1/(2*sigma_sq);
     
   }
   
