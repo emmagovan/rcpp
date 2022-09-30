@@ -44,8 +44,8 @@ mvnfastrMVN <- function(n, mu, U){
 
 U <- matrix(c(1, 0, 0, 4, 5, 0, 7, 8, 9), 3, 3)
 mu <- 1:3
-ansOLD <- OLDrMVNormC(100, mu, U)
-ansNEW <- rMVNormC(100, mu, U)
+ansOLD <- OLDrMVNormC(1000, mu, U)
+ansNEW <- rMVNormC(1000, mu, U)
 microbenchmark::microbenchmark(
   OLDrMVNormC(1000, mu, U),
   rMVNormC(1000, mu, U),
