@@ -1,0 +1,29 @@
+---
+title: "tes delta lqlt"
+output: html_notebook
+---
+
+
+```{r}
+set.seed(123)
+delta_lqltcpp(lambda, theta, eps = 0.001, simmr_in$n_sources, simmr_in$n_tracers)
+
+
+```
+
+```{r}
+    delta_lqlt <- function(lambda, theta, eps = 0.001) {
+      k <- length(lambda)
+      ans <- rep(NA, k)
+      for (i in 1:k) {
+        d <- rep(0, k)
+        d[i] <- eps
+        ans[i] <- (log_q(lambda + d, theta) - log_q(lambda - d, theta)) / (2 * max(d))
+      }
+      return(ans)
+    }
+
+set.seed(123)
+ delta_lqlt(lambda, theta[1,])
+```
+
