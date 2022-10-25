@@ -4,9 +4,9 @@ using namespace Rcpp;
 // [[Rcpp::depends(RcppArmadillo, RcppDist)]]
 // [[Rcpp::export]]
 
-arma::mat rMVNormC(const double n,
+NumericMatrix rMVNormC(const double n,
                    const arma::vec mu,
-                   const arma::mat U) {
+                   const NumericMatrix U) {
   
   // Dimension of MVN
   int p = mu.size();
@@ -16,12 +16,12 @@ arma::mat rMVNormC(const double n,
   Z.imbue(norm_rand);
   
   // Now backsolve and add back on the means
-  arma::mat X = solve(U, Z);
+  arma::mat X = solve(as<arma::mat>(U), Z);
   for ( int i = 0; i < n; ++i ) {
     X.col(i) += mu;
   }
   
-  return X.t();
+  return Rcpp::wrap(X.t());
 }
 
 
@@ -78,7 +78,8 @@ double p = (mean.length());
   
   for (int i = 0; i<n_sources; i++){
     
-      theta(_,i) = rMVNormC(S*p, mean, tcholprec);
+      // stop("Hello!");
+      theta(_,i) = rMVNormC(S, mean, tchol_prec);
     
 }
   NumericMatrix gammam(S, n_tracers);
