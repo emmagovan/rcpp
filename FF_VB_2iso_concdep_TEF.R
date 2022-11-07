@@ -128,7 +128,7 @@ sim_theta <- function(S, lambda) {
   
   return(theta)
 }
-# K <- 3; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
+# K <- 4; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
 # theta <- sim_theta(50, lambda)
 
 # Log of likelihood added to prior
