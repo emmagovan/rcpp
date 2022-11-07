@@ -1,0 +1,465 @@
+---
+title: "simmr vs ffvb r code"
+output: html_notebook
+---
+
+```{r}
+library(simmr)
+library(tidyverse)
+```
+
+```{r}
+simmr_ffvb<-function(simmr_in,
+                     prior_control = list(
+                       means = rep(
+                         0,
+                         simmr_in$n_sources),
+                       sd = rep(
+                         1,
+                         simmr_in$n_sources),
+                       c_0 = rep(
+                         1,
+                         simmr_in$n_tracers),
+                       d_0 = rep(
+                         1,
+                         simmr_in$n_tracers))
+){
+  
+  # Throw a warning if less than 4 observations in a group - 1 is ok as it wil do a solo run
+  if (min(table(simmr_in$group)) > 1 & min(table(simmr_in$group)) < 4) warning("At least 1 group has less than 4 observations - either put each observation in an individual group or use informative prior information")
+  
+  
+  output <- vector("list", length = simmr_in$n_groups)
+  names(output) <- levels(simmr_in$group)
+  K<-simmr_in$n_sources
+  n_tracers <- simmr_in$n_tracers
+  lambdares<-matrix(rep(NA, ((( K + (K * (K + 1)) / 2)) + n_tracers * 2) * simmr_in$n_groups),
+                    nrow =((( K + (K * (K + 1)) / 2)) + n_tracers * 2),
+                    ncol = simmr_in$n_groups)
+  
+  
+  # Loop through all the groups
+  for (i in 1:simmr_in$n_groups) {
+    if (simmr_in$n_groups > 1) cat(paste("\nRunning for group", levels(simmr_in$group)[i], "\n\n"))
+    
+    curr_rows <- which(simmr_in$group_int == i)
+    curr_mix <- simmr_in$mixtures[curr_rows, , drop = FALSE]
+    
+    # Determine if a single observation or not
+    if (nrow(curr_mix) == 1) {
+      cat("Only 1 mixture value, performing a simmr solo run...\n")
+      solo <- TRUE
+    } else {
+      solo <- FALSE
+    }
+    
+    
+    n_tracers <- simmr_in$n_tracers
+    n_sources <- simmr_in$n_sources
+    s_names <- simmr_in$source_names
+    K<-simmr_in$n_sources
+    S <- 100
+    source_means = simmr_in$source_means
+    source_sds = simmr_in$source_sds
+    correction_means = simmr_in$correction_means
+    correction_sds = simmr_in$correction_sds
+    concentration_means = simmr_in$concentration_means
+    y = curr_mix
+
+    
+    
+    
+    
+    # Source in all the generic functions
+    
+    #source("FF_VB_generic_functions_correct.R")
+    
+    # K <- 3; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_tracers*2, 1,1))
+    # theta <- sim_theta(50, lambda)
+    
+    # Log of likelihood added to prior
+    h = function(theta) {
+      p <- exp(theta[1:K]) / (sum((exp(theta[1:K])))) #slightly hacky way of doing 1 or
+      return(ifelse((simmr_in$n_tracers == 2), 
+                    (sum(dnorm(y[, 1],
+                        mean = sum(p * concentration_means * (source_means[, 1]+correction_means[,1]))/sum(p*concentration_means),
+                        sd = sqrt(sum(p^2 * concentration_means^2 * (source_sds[, 1]^2+correction_sds[,1]^2))/sum(p^2*concentration_means^2) + 1 / theta[K + 1]),
+                        log = TRUE)) +
+                    sum(dnorm(y[, 2],
+                      mean = sum(p * concentration_means * (source_means[, 2]+correction_means[,2]))/sum(p*concentration_means),
+                      sd = sqrt(sum(p^2 * concentration_means^2 * (source_sds[, 2]^2+correction_sds[,2]^2))/sum(p^2*concentration_means^2) + 1 / theta[K + 2]),
+                      log = TRUE))), 
+                    (sum(dnorm(y,
+                              mean = sum(p * concentration_means * (source_means+correction_means))/sum(p*concentration_means),
+                              sd = sqrt(sum(p^2 * concentration_means^2 * (source_sds[, 1]^2+correction_sds^2))/sum(p^2*concentration_means^2) + 1 / theta[K + 1]),
+                              log = TRUE
+        )))) +
+        sum(dnorm(theta[1:K], prior_control$means, prior_control$sd, log = TRUE)) +
+        sum(dgamma(theta[(K + 1):(K + n_tracers)], shape = prior_control$c_0, rate = prior_control$d_0, log = TRUE)))
+    }
+    # h(theta[1,])
+    
+    log_q = function(lambda, theta) {
+      mean <- lambda[1:K]
+      # K*(K-1) precision terms
+      chol_prec <- matrix(0, nrow = K, ncol = K)
+      chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+      # chol_prec[1,3] <- 0
+      
+      # This is a placeholder for more advanced code using chol_prec directly
+      # prec <- crossprod(chol_prec)
+      p1 <- matrix(theta[1:K] - mean, nrow = 1) %*% t(chol_prec)
+      # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
+      return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec))) - 0.5 * p1%*%t(p1)
+             + sum(dgamma(theta[(K + 1):(K + n_tracers)],
+                          shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_tracers)],
+                          rate = lambda[(((K + (K * (K + 1)) / 2)) + n_tracers + 1):(((K + (K * (K + 1)) / 2)) + n_tracers * 2)],
+                          log = TRUE
+             )))
+    }
+    
+    sim_theta = function(S, lambda) {
+      
+      # For K parameters you will have
+      # lambda is of length K+K*(K+1)/2 +n_tracers*2
+      # mean <- lambda[1:K]
+      # chol_prec is made up of lambda[(K + 1):(K+(K*(K+1))/2)]
+      # Tau is made up of lambda[((K+(K*(K+1))/2)+1):((K+(K*(K+1))/2)+n_tracers*2)]
+      # (f) ~ MVN(lambda[1:K], solve(crossprod(chol_prec)))
+      
+      
+      mean <- lambda[1:K]
+      # K*(K-1) precision terms
+      chol_prec <- matrix(0, nrow = K, ncol = K)
+      chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+      
+      # This is a placeholder for more advanced code using chol_prec directly
+      theta <- cbind(
+        t(rMVNormC(S, mu = mean, U = chol_prec)),
+        matrix(rgamma(S * n_tracers,
+                      shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_tracers)],
+                      rate = lambda[(((K + (K * (K + 1)) / 2)) + n_tracers + 1):(((K + (K * (K + 1)) / 2)) + n_tracers * 2)]
+        ),
+        nrow = S,
+        ncol = n_tracers,
+        byrow = TRUE
+        )
+      )
+      
+      return(theta)
+    }
+    
+    # This contains all the generic functions for FF VB
+    
+    # Function to estimate different between joint and variational approx
+    h_lambda <- function(lambda, theta, y) {
+      return(h(theta) - log_q(lambda, theta))
+    }
+    # h_lambda(lambda, theta[1,], y)
+    
+    # Nable LB is the mean of delta_lqlt element-wise multiplied by h_lambda
+    nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
+      big_delta_lqlt <- t(apply(theta, 1, delta_lqlt, lambda = lambda))
+      big_h_lambda <- t(apply(theta, 1, h_lambda, lambda = lambda, y = y))
+      big_h_lambda_rep <- matrix(rep(big_h_lambda, length(lambda)),
+                                 nrow = nrow(theta),
+                                 ncol = length(lambda)
+      )
+      big_c <- matrix(rep(c, nrow(theta)),
+                      ncol = length(c),
+                      nrow = nrow(theta),
+                      byrow = TRUE
+      )
+      return(colMeans(big_delta_lqlt * (big_h_lambda_rep - c)))
+    }
+    # nabla_LB(lambda, theta)
+    
+    # Now the control variate
+    control_var <- function(lambda, theta) {
+      # Get delta log q
+      big_delta_lqlt <- t(apply(theta, 1, delta_lqlt, lambda = lambda))
+      # Get h_lambda
+      big_h_lambda <- t(apply(theta, 1, h_lambda, lambda = lambda, y = y))
+      # Make it bigger
+      big_h_lambda_rep <- matrix(rep(big_h_lambda, length(lambda)),
+                                 nrow = nrow(theta),
+                                 ncol = length(lambda)
+      )
+      # Now get delta log q times h
+      big_nabla_log_q_h <- big_delta_lqlt * big_h_lambda_rep
+      # Return the diagonals of the covariance and scale
+      return(diag(cov(big_nabla_log_q_h, big_delta_lqlt)) / apply(big_delta_lqlt, 2, var))
+    }
+    # c <- control_var(lambda, theta)
+    
+    # LB estimate
+    LB_lambda <- function(lambda, theta) {
+      mean(apply(theta, 1, h_lambda, lambda = lambda))
+    }
+    # LB_lambda(lambda, theta)
+    
+    # Empirical version of derivative - comment this out if you want to create it
+    # properly
+    delta_lqlt <- function(lambda, theta, eps = 0.001) {
+      k <- length(lambda)
+      ans <- rep(NA, k)
+      for (i in 1:k) {
+        d <- rep(0, k)
+        d[i] <- eps
+        ans[i] <- (log_q(lambda + d, theta) - log_q(lambda - d, theta)) / (2 * max(d))
+      }
+      return(ans)
+    }
+    # K <- ncol(B)
+    # lambda = c(rep(0, K), rep(1, K), 1, 1, 1, 1)
+    # theta <- sim_theta(50, lambda)
+    # delta_lqlt(lambda, theta[1,])
+    
+    # Natural
+    
+    # Run the VB function
+    run_VB <- function(lambda, # Starting value of lambda
+                       S = 100, # Number of samples to take
+                       P = 10, # Maximum patience before you stop
+                       beta_1 = 0.9, # Learning rates
+                       beta_2 = 0.9, # Learning rates
+                       tau = 1000, # Iteration at which learning rate starts to decrease
+                       eps_0 = 0.1, # Raw learning rate multiplier
+                       t_W = 50 # Time window for working out convergence
+    ) {
+      
+      # Starting
+      theta <- sim_theta(S, lambda)
+      c <- control_var(lambda, theta)
+      g_0 <- nabla_LB(lambda, theta)
+      nu_0 <- g_0^2
+      g_bar <- g_0
+      nu_bar <- nu_0
+      
+      # Set up
+      t <- 1
+      patience <- 0
+      stop <- FALSE
+      LB <- rep(NA, t_W)
+      max_LB_bar <- -Inf
+      
+      while (!stop) {
+        if (t %% 10 == 0) print(t)
+        
+        # Generate new samples
+        
+        # if(t==1){
+        #   theta<-aaa}
+        # else{
+        theta <- sim_theta(S, lambda)
+        # }
+        
+        # Compute g_t
+        g_t <- nabla_LB(lambda, theta, c)
+        
+        # Compute new control variate
+        c <- control_var(lambda, theta)
+        
+        # Update the learning rates
+        nu_t <- g_t^2
+        g_bar <- beta_1 * g_bar + (1 - beta_1) * g_t
+        nu_bar <- beta_2 * nu_bar + (1 - beta_2) * nu_t
+        
+        # Update the learning rate
+        alpha_t <- min(eps_0, eps_0 * tau / t)
+        
+        # Update lambda
+        lambda <- lambda + alpha_t * g_bar / sqrt(nu_bar)
+        
+        # Compute the moving average LB if out of warm-up
+        if (t <= t_W) {
+          # Compute a new lower bound estimate
+          LB[t] <- LB_lambda(lambda, theta)
+        } else {
+          LB[1:(t_W - 1)] <- LB[2:t_W]
+          LB[t_W] <- LB_lambda(lambda, theta)
+          LB_bar <- mean(LB)
+          max_LB_bar <- max(max_LB_bar, LB_bar)
+          if (LB_bar >= max_LB_bar) {
+            patience <- 0
+          } else {
+            patience <- patience + 1
+          }
+        }
+        
+        if (patience > P) {
+          print("Completed!")
+          stop <- TRUE
+        }
+        t <- t + 1
+      }
+      return(lambda)
+    }
+    
+    rMVNormC <- function(n, mu, U){
+      p <- length(mu)
+      Z <- matrix(rnorm(p*n), p, n)
+      # U <- chol(Omega) # By default R's chol fxn returns upper cholesky factor
+      X <- backsolve(U, Z) # more efficient and stable than actually inverting
+      X <- sweep(X, 1, mu, FUN=`+`)
+      return(X)
+    }
+    
+    
+    # Now run it!
+    
+    lambdares[,i] <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_tracers * 2))))
+    
+  }
+  
+  sim_theta = function(S, lambda) {
+    
+    # For K parameters you will have
+    # lambda is of length K+K*(K+1)/2 +n_tracers*2
+    # mean <- lambda[1:K]
+    # chol_prec is made up of lambda[(K + 1):(K+(K*(K+1))/2)]
+    # Tau is made up of lambda[((K+(K*(K+1))/2)+1):((K+(K*(K+1))/2)+n_tracers*2)]
+    # (f) ~ MVN(lambda[1:K], solve(crossprod(chol_prec)))
+    
+    
+    mean <- lambda[1:K]
+    # K*(K-1) precision terms
+    chol_prec <- matrix(0, nrow = K, ncol = K)
+    chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+    
+    # This is a placeholder for more advanced code using chol_prec directly
+    theta <- cbind(
+      t(rMVNormC(S, mu = mean, U = chol_prec)),
+      matrix(rgamma(S * n_tracers,
+                    shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_tracers)],
+                    rate = lambda[(((K + (K * (K + 1)) / 2)) + n_tracers + 1):(((K + (K * (K + 1)) / 2)) + n_tracers * 2)]
+      ),
+      nrow = S,
+      ncol = n_tracers,
+      byrow = TRUE 
+      )
+    )
+    
+    return(theta)
+  }
+  
+  rMVNormC <- function(n, mu, U){
+    p <- length(mu)
+    Z <- matrix(rnorm(p*n), p, n)
+    # U <- chol(Omega) # By default R's chol fxn returns upper cholesky factor
+    X <- backsolve(U, Z) # more efficient and stable than actually inverting
+    X <- sweep(X, 1, mu, FUN=`+`)
+    return(X)
+  }
+  
+  mylist<-list(lambda = lambdares,
+               n_sources = simmr_in$n_sources, 
+               n_tracers = simmr_in$n_tracers,
+               group = simmr_in$n_groups, 
+               source_names = simmr_in$source_names,
+               theta = sim_theta(3600, lambdares)
+               )
+  
+  class(mylist) <- "simmr_ffvb_output"
+  return(mylist)
+}
+
+#Check
+#simmr_out1 = simmr_ffvb(simmr_in)
+
+```
+
+
+
+Data 2 iso
+```{r}
+mix = matrix(c(-10.13, -10.72, -11.39, -11.18, -10.81, -10.7, -10.54, 
+               -10.48, -9.93, -9.37, 11.59, 11.01, 10.59, 10.97, 11.52, 11.89, 
+               11.73, 10.89, 11.05, 12.3), ncol = 2, nrow = 10)
+colnames(mix) = c('d13C','d15N')
+s_names = c("Zostera", "Grass", "U.lactuca", "Enteromorpha")
+s_means = matrix(c(-14, -15.1, -11.03, -14.44, 3.06, 7.05, 13.72, 5.96), ncol = 2, nrow = 4)
+s_sds = matrix(c(0.48, 0.38, 0.48, 0.43, 0.46, 0.39, 0.42, 0.48), ncol = 2, nrow = 4)
+c_means = matrix(c(2.63, 1.59, 3.41, 3.04, 3.28, 2.34, 2.14, 2.36), ncol = 2, nrow = 4)
+c_sds = matrix(c(0.41, 0.44, 0.34, 0.46, 0.46, 0.48, 0.46, 0.66), ncol = 2, nrow = 4)
+conc = matrix(c(0.02, 0.1, 0.12, 0.04, 0.02, 0.1, 0.09, 0.05), ncol = 2, nrow = 4)
+```
+
+
+simmr in
+```{r}
+simmr_in = simmr_load(mixtures = mix,
+                     source_names = s_names,
+                     source_means = s_means,
+                     source_sds = s_sds,
+                     correction_means = c_means,
+                     correction_sds = c_sds,
+                     concentration_means = conc)
+```
+
+
+
+
+get vbcpp
+```{r}
+set.seed(123)
+lambda<-c(rep(0,4), rep(1,14))
+set.seed(123)
+K = 4
+n_isotopes = 2
+rmvnormmat<-sim_theta(100, lambda)[,1:4]
+theta<-sim_theta(100, lambda)
+
+e<-run_VB_cpp(lambda = c(0,0,0,0, rep(1,14)), simmr_in$n_sources,
+                        simmr_in$n_tracers,
+                         simmr_in$concentration_means,
+                        simmr_in$source_means,
+                          simmr_in$correction_means,
+                         simmr_in$correction_sds,
+                        simmr_in$source_sds,
+                         simmr_in$mixtures)
+
+print(e)
+
+```
+
+
+test all fns
+```{r}
+c<-control_var_cpp(lambda, theta, 4, 2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+                simmr_in$source_sds, simmr_in$mixtures)
+
+delta_lqltcpp(lambda, theta, 0.001, 4,2)
+
+h_lambdacpp(4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+                simmr_in$source_sds, theta[1,], simmr_in$mixtures, lambda)
+
+hcpp(4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds, simmr_in$source_sds, theta[1,], simmr_in$mixtures)
+
+hfn(theta, 4)
+
+LB_lambda_cpp(theta, lambda, hfn(theta, 4),4, 2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+                simmr_in$source_sds, simmr_in$mixtures)
+
+log_q_cpp(theta, lambda, 4, 2)
+
+nabla_LB_cpp(lambda, theta, 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+                simmr_in$source_sds, simmr_in$mixtures,c )
+
+s<-sim_thetacpp(100, lambda, 4, 2)
+
+res<-run_VB_cpp(c(0,0,0,0,rep(1,14)), 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+                simmr_in$source_sds, simmr_in$mixtures)
+```
+
+
+problem somewhere in vb function itself
+problem also in sim_theta but not sure if having a big impact or not??
+
+
+
+
+
+
+
+
