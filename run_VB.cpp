@@ -613,26 +613,24 @@ NumericVector control_var_cpp(NumericVector lambda,
                               NumericMatrix corrsds, 
                               NumericMatrix sourcesds, 
                               NumericMatrix y){
-  NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
-  NumericMatrix big_h_lambda_rep(lambda.length(), theta.nrow());
-  NumericMatrix big_h_lambda_rep_transpose(theta.nrow(), lambda.length());
-  NumericVector big_h_lambda(theta.nrow());
-  NumericVector big_h_lambda_transpose(theta.nrow());
+  int S = theta.nrow();
+  NumericMatrix big_delta_lqlt(S, lambda.length()); 
+  NumericMatrix big_h_lambda_rep(lambda.length(), S);
+  NumericMatrix big_h_lambda_rep_transpose(S, lambda.length());
+  NumericVector big_h_lambda(S);
+  NumericVector big_h_lambda_transpose(S);
 
   for(int i = 0; i <theta.nrow(); i++){
     big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.01, n_sources, n_tracers);
   }
   
-  //Rcout << big_delta_lqlt(0,0) << "\n";
-  
-  //for(int i =0; i<theta.nrow(); i++){
-  int i = 0;
+  for(int i =0; i<theta.nrow(); i++){
     big_h_lambda(i) = h_lambdacpp(n_sources, n_tracers,
                  concentrationmeans, sourcemeans,
                  correctionmeans,
                  corrsds,sourcesds, theta(i,_), y,
                  lambda);
-  //}
+  }
   
   return big_h_lambda; 
   
