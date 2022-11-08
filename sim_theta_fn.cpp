@@ -1,12 +1,15 @@
 #include <RcppArmadillo.h>
 #include <RcppDist.h>
 using namespace Rcpp;
+// [[Rcpp::plugins(cpp11)]]
 // [[Rcpp::depends(RcppArmadillo, RcppDist)]]
-// [[Rcpp::export]]
 
-NumericMatrix rMVNormC(const double n,
+
+// [[Rcpp::export]]
+NumericMatrix rMVNormCpp(const double n,
                    const arma::vec mu,
                    const NumericMatrix U) {
+
   
   // Dimension of MVN
   int p = mu.size();
@@ -62,24 +65,14 @@ for(int i = 0; i<n_sources; i++){
   }
   NumericMatrix tchol_prec = transpose(chol_prec);
   
-  // 
-  // NumericMatrix rMVNorm(theta.nrow(), n_sources);
-  // 
-  // // now need to make rMVNormC(S, mu = mean, U = chol_preg)
-double p = (mean.length());
-  // NumericMatrix Z(p, S);
-  // for(int i = 0; i<(p*S); i++){
-  //   Z(_,i) = Rcpp::rnorm(p);
-  //   }
-  // 
-  // x = U^-1 Z
+
   
   
   
   for (int i = 0; i<n_sources; i++){
     
       // stop("Hello!");
-      theta(_,i) = rMVNormC(S, mean, tchol_prec);
+      theta(_,i) = rMVNormCpp(S, mean, tchol_prec);
     
 }
   NumericMatrix gammam(S, n_tracers);

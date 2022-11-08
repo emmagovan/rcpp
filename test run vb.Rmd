@@ -410,7 +410,7 @@ n_isotopes = 2
 rmvnormmat<-sim_theta(100, lambda)[,1:4]
 theta<-sim_theta(100, lambda)
 
-e<-run_VB_cpp(lambda = c(0,0,0,0, rep(1,14)), simmr_in$n_sources,
+e<-run_VB_cpp(lambdastart = c(0,0,0,0, rep(1,14)), simmr_in$n_sources,
                         simmr_in$n_tracers,
                          simmr_in$concentration_means,
                         simmr_in$source_means,
