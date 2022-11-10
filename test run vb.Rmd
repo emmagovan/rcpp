@@ -409,6 +409,8 @@ K = 4
 n_isotopes = 2
 rmvnormmat<-sim_theta(100, lambda)[,1:4]
 theta<-sim_theta(100, lambda)
+theta1<-c(1,6,34,2,6,7)
+
 
 e<-run_VB_cpp(lambdastart = c(0,0,0,0, rep(1,14)), simmr_in$n_sources,
                         simmr_in$n_tracers,
@@ -429,7 +431,6 @@ test all fns
 c<-control_var_cpp(lambda, theta, 4, 2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
                 simmr_in$source_sds, simmr_in$mixtures)
 
-delta_lqltcpp(lambda, theta, 0.001, 4,2)
 
 h_lambdacpp(4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
                 simmr_in$source_sds, theta[1,], simmr_in$mixtures, lambda)
@@ -438,17 +439,27 @@ hcpp(4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correcti
 
 hfn(theta, 4)
 
+
 LB_lambda_cpp(theta, lambda, hfn(theta, 4),4, 2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
                 simmr_in$source_sds, simmr_in$mixtures)
 
-log_q_cpp(theta, lambda, 4, 2)
+log_q_cpp(theta[1,], lambda, 4, 2)
 
-nabla_LB_cpp(lambda, theta, 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
-                simmr_in$source_sds, simmr_in$mixtures,c )
+delta_lqltcpp(lambda, theta[1,], 0.001, 4, 2)
+
+
+
+
+e<-nabla_LB_cpp(lambda, theta, 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+                simmr_in$source_sds, simmr_in$mixtures, c)
 
 s<-sim_thetacpp(100, lambda, 4, 2)
 
-res<-run_VB_cpp(c(0,0,0,0,rep(1,14)), 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
+######### not working
+
+
+
+res<-run_VB_cpp(lambda, 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
                 simmr_in$source_sds, simmr_in$mixtures)
 ```
 

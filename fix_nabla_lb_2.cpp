@@ -1,5 +1,104 @@
-#include <Rcpp.h>
+#include <RcppArmadillo.h>
+#include <RcppDist.h>
 using namespace Rcpp;
+// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::depends(RcppArmadillo, RcppDist)]]
+
+
+// [[Rcpp::export]]
+NumericMatrix rMVNormCpp(const double n,
+                         const arma::vec mu,
+                         const NumericMatrix U) {
+  
+  
+  // Dimension of MVN
+  int p = mu.size();
+  
+  // Simulate iid standard normals
+  arma::mat Z(p, n);
+  Z.imbue(norm_rand);
+  
+  // Now backsolve and add back on the means
+  arma::mat X = solve(as<arma::mat>(U), Z);
+  for ( int i = 0; i < n; ++i ) {
+    X.col(i) += mu;
+  }
+  
+  return Rcpp::wrap(X.t());
+}
+
+
+
+// x <- t(rMVNormC(S, mu = mean, U = chol_prec))
+// i think insert r code to do first part here
+// then call it into the function and output
+// r code and maths all bound together
+//should be able to do with a loop
+
+//[[Rcpp::export]]
+NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources, 
+                           int n_tracers){
+  NumericMatrix theta(S, (n_sources + n_tracers));
+  
+  NumericVector mean(n_sources);
+  
+  for(int i = 0; i<n_sources; i++){
+    mean(i) = lambda(i);
+  }
+  
+  
+  NumericMatrix chol_prec(n_sources, n_sources);
+  int count = 0;
+  for(int j = 0; j< n_sources; j++){ 
+    for(int i = 0; i<n_sources; i++){
+      if (i <= j){
+        count +=1;
+        chol_prec((i),(j)) = lambda(n_sources -1 +count);
+        
+        
+      }
+      else{
+        chol_prec(i,j) = 0;
+      }
+      
+    }
+  }
+  //NumericMatrix tchol_prec = transpose(chol_prec);
+  
+  
+  NumericMatrix normmat(S, n_sources);
+  
+  
+  //for (int i = 0; i<n_sources; i++){
+  
+  // stop("Hello!");
+  normmat = rMVNormCpp(S, mean, chol_prec);
+  
+  //}
+  NumericMatrix gammam(S, n_tracers);
+  
+  for(int i = 0; i<n_tracers; i++){
+    gammam(_,i) = Rcpp::rgamma(S,  lambda((n_sources + (n_sources * (n_sources + 1)) / 2) + i),
+           1/lambda(((n_sources + (n_sources * (n_sources + 1)) / 2)) + n_tracers + i));
+  }
+  
+  
+  for(int i=0; i<n_sources; i++){
+    theta(_,i) = normmat(_,i);
+  }
+  
+  
+  for(int i = 0; i < (n_tracers); i++){
+    theta(_,i+n_sources) = gammam(_,i);
+  }
+  
+  return theta;
+  
+}
+
+
+
+
 
 // This function takes theta and calculates the proportions
 //[[Rcpp::export]]
@@ -231,8 +330,6 @@ double hcpp(int n_sources, int n_isotopes,
 
 
 
-
-
 //[[Rcpp::export]]
 double log_q_cpp(NumericVector theta, NumericVector lambda, 
                  int n_sources, int n_tracers){
@@ -351,6 +448,7 @@ NumericVector delta_lqltcpp(NumericVector lambda, NumericVector theta,
   return  ans;
 }
 
+
 // [[Rcpp::export]]
 double h_lambdacpp(int n_sources, int n_isotopes,
                    NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
@@ -362,7 +460,6 @@ double h_lambdacpp(int n_sources, int n_isotopes,
   return hcpp(n_sources, n_isotopes, concentrationmeans, sourcemeans, correctionmeans,
               corrsds, sourcesds, theta, y) - log_q_cpp(theta, lambda, n_sources, n_isotopes);
 }
-
 
 
 // [[Rcpp::export]]
@@ -420,10 +517,8 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
   return covmat;
 }
 
-
-
 // [[Rcpp::export]]
-NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sources, int n_tracers,
+List nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sources, int n_tracers,
                            NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
                            NumericMatrix correctionmeans,
                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
@@ -435,7 +530,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
   NumericMatrix big_h_lambda_rep(lambda.length(), theta.nrow());
   NumericMatrix big_h_lambda_rep_transpose(theta.nrow(), lambda.length());
-
+  
   NumericVector big_h_lambda(theta.nrow());
   NumericVector big_h_lambda_transpose(theta.nrow());
   
@@ -452,67 +547,25 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
                  lambda);
   }
   
-  //big_delta_lqlt_transpose = transpose(big_delta_lqlt);
+
   
-  for(int i =0; i<lambda.length(); i++){
-    big_h_lambda_rep(i,_) = big_h_lambda;
+
+  
+  for(int j =0; j<lambda.length(); j++){
+    big_h_lambda_rep_transpose(_,j) = big_h_lambda;
   }
   
-  for(int i=0; i<lambda.length(); i++){
-    for (int j=0; j < theta.nrow(); j++){
-      big_h_lambda_rep_transpose(j,i) = big_h_lambda_rep(i,j);
-      }}
-  
-  // big_h_lambda_rep_transpose = transpose(big_h_lambda_rep);
-  // 
-  // for(int i = 0; i<lambda.length(); i++){
-  //   c(i) = 0;
-  //  }
-  
-  // for(int i =0; i<theta.nrow(); i++){
-  //   big_c(i,_) = c;
-  // }
-  
-  // Temp trying to get this to match r
-  
-  NumericVector crep(100);
-  
-  for(int i =0; i<=17; i++){
-    crep(i) = c(i);
-    }
-  
-  for(int i=18; i<=35; i++){
-    crep(i) = c(i-18);
-    }
-  
-  for(int i=36; i<=53; i++){
-    crep(i) = c(i-36);
-    }
-  
-  for(int i=54; i<=71; i++){
-    crep(i) = c(i-54);
+
+  for(int i =0; i<theta.nrow(); i++){
+    big_c(i,_) = c;
   }
-  
-  for(int i=72; i<=89; i++){
-    crep(i) = c(i-72);
-  }
-  
-  for(int i=90; i<=99; i++){
-    crep(i) = c(i-90);
-  }
-  
-  for(int i =0; i<18; i++){
-    big_c(_,i) = crep;
-  }
-  
-  
   
   NumericMatrix big_h_minus_c(theta.nrow(), lambda.length());
-  //NumericMatrix big_h_minus_c_t(lambda.length(), theta.nrow());
+
   
   for (int i = 0; i<theta.nrow(); i++){
     for(int j = 0; j<lambda.length(); j++){
-      big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - big_c(i,j);
+      big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - c(j);
     }
   }
   
@@ -538,7 +591,10 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
     
   }
   
-  return ans;
+  return Rcpp::List::create(Rcpp::Named("total") = ans,
+                            Rcpp::Named("big_delta_lqlt") = big_delta_lqlt,
+         Rcpp::Named("big_h_lambda_rep_transpose") = big_h_lambda_rep_transpose,
+         Rcpp::Named("big_h_minus_c") = big_h_minus_c,
+         Rcpp::Named("ansmat") = ansmat
+           );
 }
-
-

@@ -169,7 +169,7 @@ log_q <- function(lambda, theta) {
 }
 
 # Now run it!
-lambda <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
+lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
 
 # Perform comparisons -----------------------------------------------------
 

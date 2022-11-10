@@ -63,24 +63,29 @@ for(int i = 0; i<n_sources; i++){
       
     }
   }
-  NumericMatrix tchol_prec = transpose(chol_prec);
+  //NumericMatrix tchol_prec = transpose(chol_prec);
   
 
+ NumericMatrix normmat(S, n_sources);
   
   
-  
-  for (int i = 0; i<n_sources; i++){
+  //for (int i = 0; i<n_sources; i++){
     
       // stop("Hello!");
-      theta(_,i) = rMVNormCpp(S, mean, tchol_prec);
+      normmat = rMVNormCpp(S, mean, chol_prec);
     
-}
+//}
   NumericMatrix gammam(S, n_tracers);
   
   for(int i = 0; i<n_tracers; i++){
  gammam(_,i) = Rcpp::rgamma(S,  lambda((n_sources + (n_sources * (n_sources + 1)) / 2) + i),
                               1/lambda(((n_sources + (n_sources * (n_sources + 1)) / 2)) + n_tracers + i));
   }
+  
+  
+  for(int i=0; i<n_sources; i++){
+    theta(_,i) = normmat(_,i);
+    }
   
   
     for(int i = 0; i < (n_tracers); i++){

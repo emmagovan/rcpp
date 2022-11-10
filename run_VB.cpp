@@ -4,10 +4,12 @@ using namespace Rcpp;
 // [[Rcpp::plugins(cpp11)]]
 // [[Rcpp::depends(RcppArmadillo, RcppDist)]]
 
+
 // [[Rcpp::export]]
-NumericMatrix rMVNormC(const double n,
-                       const arma::vec mu,
-                       const NumericMatrix U) {
+NumericMatrix rMVNormCpp(const double n,
+                         const arma::vec mu,
+                         const NumericMatrix U) {
+  
   
   // Dimension of MVN
   int p = mu.size();
@@ -61,33 +63,28 @@ NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources,
       
     }
   }
-  NumericMatrix tchol_prec = transpose(chol_prec);
-  
-  // 
-  // NumericMatrix rMVNorm(theta.nrow(), n_sources);
-  // 
-  // // now need to make rMVNormC(S, mu = mean, U = chol_preg)
-  // double p = (mean.length());
-  // NumericMatrix Z(p, S);
-  // for(int i = 0; i<(p*S); i++){
-  //   Z(_,i) = Rcpp::rnorm(p);
-  //   }
-  // 
-  // x = U^-1 Z
+  //NumericMatrix tchol_prec = transpose(chol_prec);
   
   
+  NumericMatrix normmat(S, n_sources);
   
-  for (int i = 0; i<n_sources; i++){
-    
-    // stop("Hello!");
-    theta(_,i) = rMVNormC(S, mean, tchol_prec);
-    
-  }
+  
+  //for (int i = 0; i<n_sources; i++){
+  
+  // stop("Hello!");
+  normmat = rMVNormCpp(S, mean, chol_prec);
+  
+  //}
   NumericMatrix gammam(S, n_tracers);
   
   for(int i = 0; i<n_tracers; i++){
     gammam(_,i) = Rcpp::rgamma(S,  lambda((n_sources + (n_sources * (n_sources + 1)) / 2) + i),
            1/lambda(((n_sources + (n_sources * (n_sources + 1)) / 2)) + n_tracers + i));
+  }
+  
+  
+  for(int i=0; i<n_sources; i++){
+    theta(_,i) = normmat(_,i);
   }
   
   
@@ -98,6 +95,10 @@ NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources,
   return theta;
   
 }
+
+
+
+
 
 // This function takes theta and calculates the proportions
 //[[Rcpp::export]]
@@ -516,6 +517,86 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
   return covmat;
 }
 
+
+// // [[Rcpp::export]]
+// NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sources, int n_tracers,
+//                            NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
+//                            NumericMatrix correctionmeans,
+//                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
+//                            NumericVector c){
+//   
+//   NumericMatrix big_c(theta.nrow(), c.length());
+//   
+//   //working
+//   NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
+//   NumericMatrix big_h_lambda_rep(lambda.length(), theta.nrow());
+//   NumericMatrix big_h_lambda_rep_transpose(theta.nrow(), lambda.length());
+//   
+//   NumericVector big_h_lambda(theta.nrow());
+//   NumericVector big_h_lambda_transpose(theta.nrow());
+//   
+//   
+//   for(int i = 0; i <theta.nrow(); i++){
+//     big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.01, n_sources, n_tracers);
+//   }
+//   
+//   for(int i =0; i<theta.nrow(); i++){
+//     big_h_lambda(i) = h_lambdacpp(n_sources, n_tracers,
+//                  concentrationmeans, sourcemeans,
+//                  correctionmeans,
+//                  corrsds,sourcesds, theta(i,_), y,
+//                  lambda);
+//   }
+//   
+//   
+//   
+//   
+//   
+//   for(int j =0; j<lambda.length(); j++){
+//     big_h_lambda_rep_transpose(_,j) = big_h_lambda;
+//   }
+//   
+//   
+//   for(int i =0; i<theta.nrow(); i++){
+//     big_c(i,_) = c;
+//   }
+//   
+//   NumericMatrix big_h_minus_c(theta.nrow(), lambda.length());
+//   
+//   
+//   for (int i = 0; i<theta.nrow(); i++){
+//     for(int j = 0; j<lambda.length(); j++){
+//       big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - c(j);
+//     }
+//   }
+//   
+//   //big_h_minus_c_t = transpose(big_h_minus_c);
+//   
+//   NumericMatrix ansmat(big_delta_lqlt.nrow(), big_h_minus_c.ncol());
+//   
+//   for (int i = 0; i < big_delta_lqlt.nrow(); i++) 
+//   {
+//     for (int j = 0; j < big_delta_lqlt.ncol(); j++) {
+//       
+//       
+//       ansmat(i,j) = big_delta_lqlt(i,j) * big_h_minus_c(i,j);
+//       
+//       
+//     }
+//   }
+//   
+//   NumericVector ans(ansmat.ncol());
+//   for(int i = 0; i<ansmat.ncol(); i++){
+//     
+//     ans(i) = mean(ansmat(_,i));
+//     
+//   }
+//   
+//   return ans;
+// }
+
+
+
 // [[Rcpp::export]]
 NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sources, int n_tracers,
                            NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
@@ -563,16 +644,50 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   //   c(i) = 0;
   //  }
   
-  for(int i =0; i<theta.nrow(); i++){
-    big_c(i,_) = c;
+  // for(int i =0; i<theta.nrow(); i++){
+  //   big_c(i,_) = c;
+  // }
+  
+  // Temp trying to get this to match r
+  
+  NumericVector crep(100);
+  
+  for(int i =0; i<=17; i++){
+    crep(i) = c(i);
   }
+  
+  for(int i=18; i<=35; i++){
+    crep(i) = c(i-18);
+  }
+  
+  for(int i=36; i<=53; i++){
+    crep(i) = c(i-36);
+  }
+  
+  for(int i=54; i<=71; i++){
+    crep(i) = c(i-54);
+  }
+  
+  for(int i=72; i<=89; i++){
+    crep(i) = c(i-72);
+  }
+  
+  for(int i=90; i<=99; i++){
+    crep(i) = c(i-90);
+  }
+  
+  for(int i =0; i<18; i++){
+    big_c(_,i) = crep;
+  }
+  
+  
   
   NumericMatrix big_h_minus_c(theta.nrow(), lambda.length());
   //NumericMatrix big_h_minus_c_t(lambda.length(), theta.nrow());
   
   for (int i = 0; i<theta.nrow(); i++){
     for(int j = 0; j<lambda.length(); j++){
-      big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - c(j);
+      big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - big_c(i,j);
     }
   }
   
@@ -600,6 +715,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   
   return ans;
 }
+
 
 
 // [[Rcpp::export]]
@@ -723,24 +839,31 @@ List run_VB_cpp(NumericVector lambdastart,
     double beta_2 = 0.9;
     int tau = 1000;
     double eps_0 = 0.1;
-    int t_W = 49;
+    int t_W = 50;
 
   NumericMatrix theta(S, (n_sources + n_tracers));
 
   theta = sim_thetacpp(S, lambdastart, n_sources, n_tracers);
 
   NumericVector c(lambdastart.length());
+  
   c = control_var_cpp(lambdastart, theta, n_sources, n_tracers, 
                       concentrationmeans,
                       sourcemeans, correctionmeans,
                       corrsds, sourcesds, y);
 
   NumericVector g_0(lambdastart.length());
+  
+  NumericVector c_0(lambdastart.length());
+  for(int i=0; i<lambdastart.length(); i++){
+    c_0(i) = 0;
+    }
+  
   g_0 = nabla_LB_cpp(lambdastart, theta, 
                      n_sources, n_tracers, 
                      concentrationmeans, sourcemeans,
                      correctionmeans, corrsds, 
-                     sourcesds, y, c);
+                     sourcesds, y, c_0);
 
   NumericVector nu_0(lambdastart.length());
   
@@ -766,11 +889,16 @@ List run_VB_cpp(NumericVector lambdastart,
   NumericVector LB(t_W+1);
 
   for(int i=0; i<t_W; i++){
-    LB(i) = 0;
+    LB(i) = NA_REAL;
     }
-  NumericVector lambda = lambdastart;
+  
+  NumericVector lambda(lambdastart.length());
+  
+  for(int i = 0; i<lambdastart.length(); i++){
+      lambda(i) = lambdastart(i);
+    }
 
-  while(stop == FALSE){
+ while(stop == FALSE){
 
   theta = sim_thetacpp(S, lambda, n_sources, n_tracers);
 
@@ -788,26 +916,29 @@ List run_VB_cpp(NumericVector lambdastart,
     }
 
   for(int i=0; i<g_bar.length(); i++){
-    g_bar(i) = beta_1 * g_bar(i) + (1-beta_1) * g_t(i);
-    nu_bar(i) = beta_2 * nu_bar(i) + (1-beta_2) * nu_t(i);
+    g_bar(i) = (beta_1 * g_bar(i)) + ((1-beta_1) * g_t(i));
+    nu_bar(i) = (beta_2 * nu_bar(i)) + ((1-beta_2) * nu_t(i));
     }
 
   NumericVector alpha_min(2);
 
   for(int i=0; i<2; i++){
     alpha_min(0) = eps_0;
-    alpha_min(1) = eps_0 * tau/(t+1);
+    alpha_min(1) = eps_0 * (tau/(t+1));
     }
 
   alpha_t = Rcpp::min(alpha_min);
 
 
 
- // # Update lambda
-  for(int i = 0; i<lambda.length(); i++){
-    lambda(i) = lambda(i) + alpha_t * g_bar(i)/pow(nu_bar(i), 0.5);
-    }
-  // # Compute the moving average LB if out of warm-up
+ //# Update lambda
+ for(int i = 0; i<lambda.length(); i++){
+   //lambda(i) = lambda(i) + alpha_t * 1/pow(nu_bar(i), 0.5);
+   lambda(i) = lambda(i) + alpha_t * (g_bar(i)/(pow(nu_bar(i), 0.5)));
+   }
+ 
+ 
+ //# Compute the moving average LB if out of warm-up
   if(t<=t_W){
 
   // # Compute a new lower bound estimate
@@ -834,6 +965,7 @@ List run_VB_cpp(NumericVector lambdastart,
   double LB_bar = mean(LB);
 
   NumericVector maxbar(2);
+  
   for(int i=0; i<2; i++){
     maxbar(0) = max_LB_bar;
     maxbar(1) = LB_bar;
