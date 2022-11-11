@@ -142,29 +142,29 @@ double hcpp(int n_sources, int n_isotopes,
   p = hfn(theta, n_sources);
   
   double ly = y.rows();
-
+  
   // Setting prior values for hyper parameters
   NumericVector prior_means(n_sources);
   NumericVector prior_sd(n_sources);
   NumericVector c_0(n_isotopes);
   NumericVector d_0(n_isotopes);
-
+  
   // Setting up prior values
   for(int i=0; i<n_sources; i++){
     // mean was zero - this caused problems below when I needed to take the log of the mean
     prior_means(i) = 0;
     prior_sd(i) = 1;
   }
-
+  
   for (int i = 0; i<n_isotopes; i++){
     c_0(i) = 1;
     d_0(i) = 1;
   }
   
-
+  
   if(n_isotopes == 2){
-
-
+    
+    
     // This is to get dnorm(y[,1], sum(p*q) etc)
     double mutop1 = 0;
     double mubtm1 = 0;
@@ -172,7 +172,7 @@ double hcpp(int n_sources, int n_isotopes,
     double sigmasq1 = 0;
     double sigmatopsq1 = 0;
     double sigmabtmsq1 = 0;
-
+    
     NumericMatrix pxconc1(p.length(), concentrationmeans.ncol());
     for(int i=0; i<n_sources; i++){
       for(int j = 0; j<n_isotopes; j++){
@@ -186,7 +186,7 @@ double hcpp(int n_sources, int n_isotopes,
         mubtm1 += p(i) * concentrationmeans(i,j);
       }
     }
-   
+    
     // Same for sigma
     for(int i=0; i<n_sources; i++){ // sds
       for(int j =0; j<n_isotopes; j++){
@@ -200,8 +200,8 @@ double hcpp(int n_sources, int n_isotopes,
     mu1 = mutop1/mubtm1;
     sigmasq1 = sigmatopsq1/sigmabtmsq1;
     double sigma1 = pow(sigmasq1 + 1/theta((n_sources)), 0.5);
-
-
+    
+    
     // This is to get dnorm(y[,2], sum(p*q) etc)
     double mutop2 = 0;
     double mubtm2 = 0;
@@ -215,8 +215,8 @@ double hcpp(int n_sources, int n_isotopes,
         mubtm2 += p(i) * concentrationmeans(i,j);
       }
     }
-
-
+    
+    
     for(int i=0; i<n_sources; i++){
       for(int j=0; j<n_isotopes; j++){
         sigmatopsq2 += pow(p(i),2) * pow(concentrationmeans(i,j),2) * (pow(sourcesds(i,1),2) +
@@ -224,33 +224,33 @@ double hcpp(int n_sources, int n_isotopes,
         sigmabtmsq2 += pow(p(i),2) * pow(concentrationmeans(i,j),2);
       }
     }
-
+    
     mu2 = mutop2/mubtm2;
     sigmasq2 = sigmatopsq2/sigmabtmsq2;
-
+    
     double sigma2 = pow(sigmasq2 + 1/theta((1+n_sources)), 0.5);
-
+    
     double yminusmu1 = 0;
     double yminusmu2 = 0;
-
+    
     for(int i = 0; i<ly; i++){
       yminusmu1 += pow((y(i,0) - mu1),2);
       yminusmu2 +=  pow((y(i,1) - mu2),2);
     }
-
-
-
+    
+    
+    
     // This is log(dnorm(y, p*q, p^2*q^2 etc) for y1 and y2
-
+    
     x = - ly * log(sigma1) - 0.5 * ly * log(2 * M_PI)
       - 0.5 * yminusmu1 * 1/(pow(sigma1,2))
       - ly * log(sigma2) - 0.5 * ly * log(2 * M_PI)
       - 0.5 * yminusmu2 * 1/(pow(sigma2,2));
-
-
+      
+      
   }  else{
     //This is for just one isotope!!
-
+    
     // This is to get dnorm(y[,1], sum(p*q) etc)
     double mutop = 0;
     double mubtm = 0;
@@ -258,72 +258,72 @@ double hcpp(int n_sources, int n_isotopes,
     double sigmasq = 0;
     double sigmatopsq = 0;
     double sigmabtmsq = 0;
-
+    
     // calculate mu numerator and denominator
     for(int i=0; i<n_sources; i++){
       mutop += p(i) * concentrationmeans(i,0) * (sourcemeans(i,0) + correctionmeans(i,0));
       mubtm += p(i) * concentrationmeans(i,0);
     }
-
-
-
-
+    
+    
+    
+    
     // same for sigma
     for(int i=0; i<n_sources; i++){
       sigmatopsq += pow(p(i),2) * pow(concentrationmeans(i,0),2) * (pow(sourcesds(i,0),2) +
         pow(corrsds(i,0),2));
       sigmabtmsq += pow(p(i),2) * pow(concentrationmeans(i,0),2);
     }
-
-
-
+    
+    
+    
     //Calculate mu and sd
     mu = mutop/mubtm;
     sigmasq = sigmatopsq/sigmabtmsq;
     double sigma = pow(sigmasq + 1/theta(n_sources), 0.5);
-
-
-
-
-
+    
+    
+    
+    
+    
     double yminusmu = 0;
-
+    
     for(int i = 0; i<ly; i++){
       yminusmu += pow((y(i,0) - mu),2);
     }
-
-
-
-
-
+    
+    
+    
+    
+    
     // This has y
-
+    
     x = - ly * log(sigma) - 0.5 * ly * log(2 * M_PI) - 0.5 * yminusmu* 1/(pow(sigma,2));
-
-
-
-
+    
+    
+    
+    
   }
-
+  
   double thetanorm = 0;
-
-
-
-
+  
+  
+  
+  
   for(int i = 0; i<n_sources; i++){
     thetanorm +=  - n_sources * log(prior_sd(i)) - 0.5 * log(2 * M_PI) - (pow((theta(i) - prior_means(i)), 2)
                                                                             * 1/(2 * pow(prior_sd(i), 2)));
   }
-
+  
   double gammaprior = 0;
   for (int i=0; i <(n_isotopes); i++){
     gammaprior += c_0(i) * log(d_0(i)) - log(tgamma(c_0(i))) +(c_0(i) - 1) * theta((i+n_sources)) -
       d_0(i) * theta((i+n_sources));
-
+    
   }
-
+  
   double totx = x + gammaprior + thetanorm;
-
+  
   return totx;
   
 }
@@ -464,42 +464,45 @@ double h_lambdacpp(int n_sources, int n_isotopes,
 
 // [[Rcpp::export]]
 NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
+  int xncol = x.ncol();
+  int yncol = y.ncol();
+  int xnrow = x.nrow();
+  int ynrow = y.nrow();
   
+  NumericVector meanx(xncol);
+  NumericVector meany(yncol); 
+  NumericMatrix covmat(xncol, yncol);
   
-  NumericVector meanx(x.ncol());
-  NumericVector meany(y.ncol()); 
-  NumericMatrix covmat(x.ncol(), y.ncol());
-  
-  for(int i = 0; i<x.ncol(); i++){
+  for(int i = 0; i<xncol; i++){
     meanx(i) = mean(x(_,i));
   }
-  for(int i = 0; i<y.ncol(); i++){
+  for(int i = 0; i<yncol; i++){
     meany(i) = mean(y(_,i));
   }
   
-  NumericMatrix xminusmean(x.nrow(), x.ncol());
-  NumericMatrix yminusmean(y.nrow(), y.ncol());
+  NumericMatrix xminusmean(xnrow, xncol);
+  NumericMatrix yminusmean(ynrow, yncol);
   
-  for(int j = 0; j<x.ncol(); j++){
-    for(int i=0; i<x.nrow(); i++){
+  for(int j = 0; j<xncol; j++){
+    for(int i=0; i<xnrow; i++){
       xminusmean(i,j) = x(i,j) - meanx(j);
     }
   }
   
-  for(int j = 0; j<y.ncol(); j++){
-    for(int i =0; i<y.nrow(); i++){
+  for(int j = 0; j<yncol; j++){
+    for(int i =0; i<ynrow; i++){
       yminusmean(i,j) = y(i,j) - meany(j);
     }
   }
   
-  NumericMatrix sumxy(x.ncol(), y.ncol());
+  NumericMatrix sumxy(xncol, yncol);
   
-  NumericVector xcol(x.ncol());
-  NumericVector ycol(y.ncol());
+  NumericVector xcol(xncol);
+  NumericVector ycol(yncol);
   
-  for(int i = 0; i<x.ncol(); i++){
-    for(int j=0; j<y.ncol(); j++){
-      for(int n =0; n<x.nrow(); n++){
+  for(int i = 0; i<xncol; i++){
+    for(int j=0; j<yncol; j++){
+      for(int n =0; n<xnrow; n++){
         
         sumxy(i,j) += xminusmean(n,i) * yminusmean(n,j);
       }
@@ -510,9 +513,9 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
     }}
   
   
-  for(int i=0; i<x.ncol(); i++){
-    for(int j = 0; j<y.ncol(); j++){
-      covmat(i,j) = sumxy(i,j)/(x.nrow()-1);
+  for(int i=0; i<xncol; i++){
+    for(int j = 0; j<yncol; j++){
+      covmat(i,j) = sumxy(i,j)/(xnrow-1);
     }
   }
   
@@ -824,172 +827,172 @@ double LB_lambda_cpp(NumericMatrix theta, NumericVector lambda, NumericVector p,
 
 // [[Rcpp::export]]
 List run_VB_cpp(NumericVector lambdastart,
-                         int n_sources,
-                         int n_tracers,
-                         NumericMatrix concentrationmeans,
-                         NumericMatrix sourcemeans,
-                         NumericMatrix correctionmeans,
-                         NumericMatrix corrsds,
-                         NumericMatrix sourcesds,
-                         NumericMatrix y
-                             ){
-
+                int n_sources,
+                int n_tracers,
+                NumericMatrix concentrationmeans,
+                NumericMatrix sourcemeans,
+                NumericMatrix correctionmeans,
+                NumericMatrix corrsds,
+                NumericMatrix sourcesds,
+                NumericMatrix y
+){
+  
   // starting values
   int S = 100;
-    int P = 9;
-    double beta_1 = 0.9;
-    double beta_2 = 0.9;
-    int tau = 1000;
-    double eps_0 = 0.1;
-    int t_W = 50;
-
+  int P = 9;
+  double beta_1 = 0.9;
+  double beta_2 = 0.9;
+  int tau = 1000;
+  double eps_0 = 0.1;
+  int t_W = 50;
+  
   NumericMatrix theta(S, (n_sources + n_tracers));
-
+  
   theta = sim_thetacpp(S, lambdastart, n_sources, n_tracers);
-
+  
   NumericVector c(lambdastart.length());
   
   c = control_var_cpp(lambdastart, theta, n_sources, n_tracers, 
                       concentrationmeans,
                       sourcemeans, correctionmeans,
                       corrsds, sourcesds, y);
-
+  
   NumericVector g_0(lambdastart.length());
   
   NumericVector c_0(lambdastart.length());
   for(int i=0; i<lambdastart.length(); i++){
     c_0(i) = 0;
-    }
+  }
   
   g_0 = nabla_LB_cpp(lambdastart, theta, 
                      n_sources, n_tracers, 
                      concentrationmeans, sourcemeans,
                      correctionmeans, corrsds, 
                      sourcesds, y, c_0);
-
+  
   NumericVector nu_0(lambdastart.length());
   
   for(int i = 0; i<lambdastart.length(); i++){
     nu_0(i) = pow(g_0(i),2);
-    }
-
-
+  }
+  
+  
   NumericVector g_bar(lambdastart.length());
   g_bar = g_0;
-
+  
   NumericVector nu_bar(lambdastart.length());
   nu_bar = nu_0;
-
+  
   NumericVector g_t(lambdastart.length());
   NumericVector nu_t(lambdastart.length());
-
+  
   double patience = 0;
   bool stop = FALSE;
   double max_LB_bar = R_NegInf;
   double alpha_t = 0;
   double t = 0;
   NumericVector LB(t_W+1);
-
+  
   for(int i=0; i<t_W; i++){
     LB(i) = NA_REAL;
-    }
+  }
   
   NumericVector lambda(lambdastart.length());
   
   for(int i = 0; i<lambdastart.length(); i++){
-      lambda(i) = lambdastart(i);
-    }
-
- while(stop == FALSE){
-
-  theta = sim_thetacpp(S, lambda, n_sources, n_tracers);
-
-  g_t = nabla_LB_cpp(lambda, theta, n_sources, n_tracers, concentrationmeans,
-                     sourcemeans, correctionmeans, corrsds, sourcesds,
-                     y, c);
-
-  c = control_var_cpp(lambda, theta,n_sources,n_tracers,
-                      concentrationmeans, sourcemeans,
-                      correctionmeans,
-                      corrsds,sourcesds, y);
-
-  for(int i=0; i<nu_t.length(); i++){
-    nu_t(i) = pow(g_t(i),2);
-    }
-
-  for(int i=0; i<g_bar.length(); i++){
-    g_bar(i) = (beta_1 * g_bar(i)) + ((1-beta_1) * g_t(i));
-    nu_bar(i) = (beta_2 * nu_bar(i)) + ((1-beta_2) * nu_t(i));
-    }
-
-  NumericVector alpha_min(2);
-
-  for(int i=0; i<2; i++){
-    alpha_min(0) = eps_0;
-    alpha_min(1) = eps_0 * (tau/(t+1));
-    }
-
-  alpha_t = Rcpp::min(alpha_min);
-
-
-
- //# Update lambda
- for(int i = 0; i<lambda.length(); i++){
-   //lambda(i) = lambda(i) + alpha_t * 1/pow(nu_bar(i), 0.5);
-   lambda(i) = lambda(i) + alpha_t * (g_bar(i)/(pow(nu_bar(i), 0.5)));
-   }
- 
- 
- //# Compute the moving average LB if out of warm-up
-  if(t<=t_W){
-
-  // # Compute a new lower bound estimate
-  NumericVector p = hfn(theta, n_sources);
-
-  LB(t) = LB_lambda_cpp(theta,lambda, p, n_sources, n_tracers,
-    concentrationmeans, sourcemeans,
-    correctionmeans,
-    corrsds,sourcesds, y);
+    lambda(i) = lambdastart(i);
   }
-  else{
-    for (int i = 0; i<(t_W-1); i++){
-      LB(i) = LB(i+1);
-      }
-
-    NumericVector p = hfn(theta, n_sources);
-
-    LB(t_W) = LB_lambda_cpp(theta, lambda, p, n_sources, n_tracers,
-       concentrationmeans, sourcemeans,
-       correctionmeans,
-       corrsds,sourcesds, y);
-
-
-  double LB_bar = mean(LB);
-
-  NumericVector maxbar(2);
   
-  for(int i=0; i<2; i++){
-    maxbar(0) = max_LB_bar;
-    maxbar(1) = LB_bar;
-  }
-
-  max_LB_bar = Rcpp::max(maxbar);
-
-    if(LB_bar>= max_LB_bar){
-      patience = 0;
-    } else{
-      patience = patience +1;
-      }
-
+  while(stop == FALSE){
+    
+    theta = sim_thetacpp(S, lambda, n_sources, n_tracers);
+    
+    g_t = nabla_LB_cpp(lambda, theta, n_sources, n_tracers, concentrationmeans,
+                       sourcemeans, correctionmeans, corrsds, sourcesds,
+                       y, c);
+    
+    c = control_var_cpp(lambda, theta,n_sources,n_tracers,
+                        concentrationmeans, sourcemeans,
+                        correctionmeans,
+                        corrsds,sourcesds, y);
+    
+    for(int i=0; i<nu_t.length(); i++){
+      nu_t(i) = pow(g_t(i),2);
     }
-
-//////////////////////
+    
+    for(int i=0; i<g_bar.length(); i++){
+      g_bar(i) = (beta_1 * g_bar(i)) + ((1-beta_1) * g_t(i));
+      nu_bar(i) = (beta_2 * nu_bar(i)) + ((1-beta_2) * nu_t(i));
+    }
+    
+    NumericVector alpha_min(2);
+    
+    for(int i=0; i<2; i++){
+      alpha_min(0) = eps_0;
+      alpha_min(1) = eps_0 * (tau/(t+1));
+    }
+    
+    alpha_t = Rcpp::min(alpha_min);
+    
+    
+    
+    //# Update lambda
+    for(int i = 0; i<lambda.length(); i++){
+      //lambda(i) = lambda(i) + alpha_t * 1/pow(nu_bar(i), 0.5);
+      lambda(i) = lambda(i) + alpha_t * (g_bar(i)/(pow(nu_bar(i), 0.5)));
+    }
+    
+    
+    //# Compute the moving average LB if out of warm-up
+    if(t<=t_W){
+      
+      // # Compute a new lower bound estimate
+      NumericVector p = hfn(theta, n_sources);
+      
+      LB(t) = LB_lambda_cpp(theta,lambda, p, n_sources, n_tracers,
+         concentrationmeans, sourcemeans,
+         correctionmeans,
+         corrsds,sourcesds, y);
+    }
+    else{
+      for (int i = 0; i<(t_W-1); i++){
+        LB(i) = LB(i+1);
+      }
+      
+      NumericVector p = hfn(theta, n_sources);
+      
+      LB(t_W) = LB_lambda_cpp(theta, lambda, p, n_sources, n_tracers,
+         concentrationmeans, sourcemeans,
+         correctionmeans,
+         corrsds,sourcesds, y);
+      
+      
+      double LB_bar = mean(LB);
+      
+      NumericVector maxbar(2);
+      
+      for(int i=0; i<2; i++){
+        maxbar(0) = max_LB_bar;
+        maxbar(1) = LB_bar;
+      }
+      
+      max_LB_bar = Rcpp::max(maxbar);
+      
+      if(LB_bar>= max_LB_bar){
+        patience = 0;
+      } else{
+        patience = patience +1;
+      }
+      
+    }
+    
+    //////////////////////
     if(patience>P){
       stop = TRUE;
-      }
-    t = t + 1;
     }
-
+    t = t + 1;
+  }
+  
   return Rcpp::List::create(Rcpp::Named("lambda") = lambda,
                             Rcpp::Named("patience") = patience,
                             Rcpp::Named("t_W") = t_W,
@@ -1000,8 +1003,8 @@ List run_VB_cpp(NumericVector lambdastart,
                             Rcpp::Named("g0") = g_0,
                             Rcpp::Named("nu0") = nu_0,
                             Rcpp::Named("nubar") = nu_bar
-                              );
-  }
+  );
+}
 
 // alpha_t <- min(eps_0, eps_0 * tau / t)
 //
