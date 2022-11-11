@@ -89,6 +89,85 @@ VB = run_VB_cpp(lambdastart, 4,2, conc, s_means, c_means, c_sds,
 )
 
 
+# Run VB ------------------------------------------------------------------
+
+# Source in all the generic functions
+source("FF_VB_generic_functions_correct.R")
+
+S <- 100
+
+sim_theta <- function(S, lambda) {
+  
+  # For K parameters you will have
+  # lambda is of length K+K*(K+1)/2 +n_isotopes*2
+  # mean <- lambda[1:K]
+  # chol_prec is made up of lambda[(K + 1):(K+(K*(K+1))/2)]
+  # Tau is made up of lambda[((K+(K*(K+1))/2)+1):((K+(K*(K+1))/2)+n_isotopes*2)]
+  # (f) ~ MVN(lambda[1:K], solve(crossprod(chol_prec)))
+  
+  mean <- lambda[1:K]
+  # K*(K-1) precision terms
+  chol_prec <- matrix(0, nrow = K, ncol = K)
+  chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+  
+  # This is a placeholder for more advanced code using chol_prec directly
+  theta <- cbind(
+    t(rMVNormC(S, mu = mean, U = chol_prec)),
+    matrix(rgamma(S * n_isotopes,
+                  shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes)],
+                  rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)]
+    ),
+    nrow = S,
+    ncol = n_isotopes,
+    byrow = TRUE
+    )
+  )
+  
+  return(theta)
+}
+# K <- 4; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
+# theta <- sim_theta(50, lambda)
+
+# Log of likelihood added to prior
+h <- function(theta) {
+  p <- exp(theta[1:K]) / (sum((exp(theta[1:K]))))
+  return(sum(dnorm(y[, 1],
+                   mean = sum(p * conc * (mu_kj[, 1]+c_means[,1]))/sum(p*conc),
+                   sd = sqrt(sum(p^2 * conc^2 * (s_sds[, 1]^2+c_sds[,1]^2))/sum(p^2*conc^2) + 1 / theta[K + 1]),
+                   log = TRUE
+  )) +
+    sum(dnorm(y[, 2],
+              mean = sum(p * conc * (mu_kj[, 2]+c_means[,2]))/sum(p*conc),
+              sd = sqrt(sum(p^2 * conc^2 * (s_sds[, 2]^2+c_sds[,2]^2))/sum(p^2*conc^2) + 1 / theta[K + 2]),
+              log = TRUE
+    )) +
+    sum(dnorm(theta[1:K], fmean_0, fsd_0, log = TRUE)) +
+    sum(dgamma(theta[(K + 1):(K + 2)], shape = c_0, rate = d_0, log = TRUE)))
+}
+# h(theta[1,])
+
+log_q <- function(lambda, theta) {
+  mean <- lambda[1:K]
+  # K*(K-1) precision terms
+  chol_prec <- matrix(0, nrow = K, ncol = K)
+  chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+  # chol_prec[1,3] <- 0
+  
+  # This is a placeholder for more advanced code using chol_prec directly
+  # prec <- crossprod(chol_prec)
+  p1 <- matrix(theta[1:K] - mean, nrow = 1) %*% t(chol_prec)
+  # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
+  return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec))) - 0.5 * p1%*%t(p1)
+         + sum(dgamma(theta[(K + 1):(K + 2)],
+                      shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes)],
+                      rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
+                      log = TRUE
+         )))
+}
+
+# Now run it!
+lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
+
 # Perform comparisons -----------------------------------------------------
 
 # Get all the parameters from JAGS and VB
@@ -96,6 +175,8 @@ f_JAGS <- JAGS_run$BUGSoutput$sims.list$f
 n <- nrow(f_JAGS)
 all_vb <- sim_thetacpp(n, res$lambda, K, n_isotopes)
 f_VB <- all_vb[,1:K]
+all_VB_r <- sim_theta(n, lambda_out)
+f_VB_r <-all_VB_r[,1:K]
 
 for (i in 1:K) {
   print(data.frame(
@@ -105,10 +186,21 @@ for (i in 1:K) {
     ggtitle(paste("f: Iso",i)))
 }
 
+for (i in 1:K) {
+  print(data.frame(
+    f = c(f_VB_r[,i], f_VB[,i]),
+    Fit = c(rep('VB_R', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = f, fill = Fit)) + geom_density(alpha = 0.5) + 
+    ggtitle(paste("f: Iso",i)))
+}
+
+
+
 # Try the p 
 p_fun <- function(x) exp(x)/sum(exp(x))
 p_JAGS <- JAGS_run$BUGSoutput$sims.list$p
 p_VB <- t(apply(all_vb[,1:K], 1, p_fun))
+p_VB_r <-t(apply(all_VB_r[,1:K], 1, p_fun))
 
 for (i in 1:K) {
   print(data.frame(
@@ -117,6 +209,15 @@ for (i in 1:K) {
   ) %>% ggplot(aes(x = p, fill = Fit)) + geom_density(alpha = 0.5) +
     ggtitle(paste("p: Iso",i)))
 }
+
+for (i in 1:K) {
+  print(data.frame(
+    p = c(p_VB_r[,i], p_VB[,i]),
+    Fit = c(rep('VB_r', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = p, fill = Fit)) + geom_density(alpha = 0.5) +
+    ggtitle(paste("p: Iso",i)))
+}
+
 
 # Try tau
 tau_JAGS <- 1/JAGS_run$BUGSoutput$sims.list$var_y
