@@ -530,7 +530,7 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
 //                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
 //                            NumericVector c){
 //   
-//   NumericMatrix big_c(theta.nrow(), c.length());
+//   NumericMatrix big_c(theta.nrow(), clength);
 //   
 //   //working
 //   NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
@@ -609,22 +609,25 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
                            NumericVector c){
   
-  NumericMatrix big_c(theta.nrow(), c.length());
+  int thetanrow = theta.nrow();
+  int clength = c.length();
+  
+  NumericMatrix big_c(thetanrow, clength);
   
   //working
-  NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
-  NumericMatrix big_h_lambda_rep(lambda.length(), theta.nrow());
-  NumericMatrix big_h_lambda_rep_transpose(theta.nrow(), lambda.length());
+  NumericMatrix big_delta_lqlt(thetanrow, lambda.length()); 
+  NumericMatrix big_h_lambda_rep(lambda.length(), thetanrow);
+  NumericMatrix big_h_lambda_rep_transpose(thetanrow, lambda.length());
   
-  NumericVector big_h_lambda(theta.nrow());
-  NumericVector big_h_lambda_transpose(theta.nrow());
+  NumericVector big_h_lambda(thetanrow);
+  NumericVector big_h_lambda_transpose(thetanrow);
   
   
-  for(int i = 0; i <theta.nrow(); i++){
+  for(int i = 0; i <thetanrow; i++){
     big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.01, n_sources, n_tracers);
   }
   
-  for(int i =0; i<theta.nrow(); i++){
+  for(int i =0; i<thetanrow; i++){
     big_h_lambda(i) = h_lambdacpp(n_sources, n_tracers,
                  concentrationmeans, sourcemeans,
                  correctionmeans,
@@ -639,7 +642,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   }
   
   for(int i=0; i<lambda.length(); i++){
-    for (int j=0; j < theta.nrow(); j++){
+    for (int j=0; j < thetanrow; j++){
       big_h_lambda_rep_transpose(j,i) = big_h_lambda_rep(i,j);
     }}
   
@@ -649,7 +652,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   //   c(i) = 0;
   //  }
   
-  // for(int i =0; i<theta.nrow(); i++){
+  // for(int i =0; i<thetanrow; i++){
   //   big_c(i,_) = c;
   // }
   
@@ -687,10 +690,10 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   
   
   
-  NumericMatrix big_h_minus_c(theta.nrow(), lambda.length());
-  //NumericMatrix big_h_minus_c_t(lambda.length(), theta.nrow());
+  NumericMatrix big_h_minus_c(thetanrow, lambda.length());
+  //NumericMatrix big_h_minus_c_t(lambda.length(), thetanrow);
   
-  for (int i = 0; i<theta.nrow(); i++){
+  for (int i = 0; i<thetanrow; i++){
     for(int j = 0; j<lambda.length(); j++){
       big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - big_c(i,j);
     }
