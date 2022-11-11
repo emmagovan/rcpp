@@ -834,7 +834,7 @@ List run_VB_cpp(NumericVector lambdastart,
 
   // starting values
   int S = 100;
-    int P = 10;
+    int P = 9;
     double beta_1 = 0.9;
     double beta_2 = 0.9;
     int tau = 1000;

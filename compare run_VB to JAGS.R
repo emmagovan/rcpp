@@ -230,6 +230,18 @@ for (i in 1:n_isotopes) {
     ggtitle(paste("sigma: Iso",i)))
 }
 
+# Try tau
+tau_VB_R <- all_VB_r[,(K+1):(K + n_isotopes)]
+tau_VB <- all_vb[,(K+1):(K + n_isotopes)]
+for (i in 1:n_isotopes) {
+  print(data.frame(
+    sigma = c(1/sqrt(tau_VB_R[,i]), 1/sqrt(tau_VB[,i])),
+    Fit = c(rep('VB_r', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = sigma, fill = Fit)) + geom_density(alpha = 0.5) +
+    ggtitle(paste("sigma: Iso",i)))
+}
+
+
 
 
 # Finally have a look at the two posterior predictives match the data
