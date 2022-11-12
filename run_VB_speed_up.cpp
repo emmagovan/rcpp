@@ -464,45 +464,42 @@ double h_lambdacpp(int n_sources, int n_isotopes,
 
 // [[Rcpp::export]]
 NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
-  int xncol = x.ncol();
-  int yncol = y.ncol();
-  int xnrow = x.nrow();
-  int ynrow = y.nrow();
   
-  NumericVector meanx(xncol);
-  NumericVector meany(yncol); 
-  NumericMatrix covmat(xncol, yncol);
   
-  for(int i = 0; i<xncol; i++){
+  NumericVector meanx(x.ncol());
+  NumericVector meany(y.ncol()); 
+  NumericMatrix covmat(x.ncol(), y.ncol());
+  
+  for(int i = 0; i<x.ncol(); i++){
     meanx(i) = mean(x(_,i));
   }
-  for(int i = 0; i<yncol; i++){
+  for(int i = 0; i<y.ncol(); i++){
     meany(i) = mean(y(_,i));
   }
   
-  NumericMatrix xminusmean(xnrow, xncol);
-  NumericMatrix yminusmean(ynrow, yncol);
+  NumericMatrix xminusmean(x.nrow(), x.ncol());
+  NumericMatrix yminusmean(y.nrow(), y.ncol());
   
-  for(int j = 0; j<xncol; j++){
-    for(int i=0; i<xnrow; i++){
+  for(int j = 0; j<x.ncol(); j++){
+    for(int i=0; i<x.nrow(); i++){
       xminusmean(i,j) = x(i,j) - meanx(j);
     }
   }
   
-  for(int j = 0; j<yncol; j++){
-    for(int i =0; i<ynrow; i++){
+  for(int j = 0; j<y.ncol(); j++){
+    for(int i =0; i<y.nrow(); i++){
       yminusmean(i,j) = y(i,j) - meany(j);
     }
   }
   
-  NumericMatrix sumxy(xncol, yncol);
+  NumericMatrix sumxy(x.ncol(), y.ncol());
   
-  NumericVector xcol(xncol);
-  NumericVector ycol(yncol);
+  NumericVector xcol(x.ncol());
+  NumericVector ycol(y.ncol());
   
-  for(int i = 0; i<xncol; i++){
-    for(int j=0; j<yncol; j++){
-      for(int n =0; n<xnrow; n++){
+  for(int i = 0; i<x.ncol(); i++){
+    for(int j=0; j<y.ncol(); j++){
+      for(int n =0; n<x.nrow(); n++){
         
         sumxy(i,j) += xminusmean(n,i) * yminusmean(n,j);
       }
@@ -513,9 +510,9 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
     }}
   
   
-  for(int i=0; i<xncol; i++){
-    for(int j = 0; j<yncol; j++){
-      covmat(i,j) = sumxy(i,j)/(xnrow-1);
+  for(int i=0; i<x.ncol(); i++){
+    for(int j = 0; j<y.ncol(); j++){
+      covmat(i,j) = sumxy(i,j)/(x.nrow()-1);
     }
   }
   
@@ -530,7 +527,7 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
 //                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
 //                            NumericVector c){
 //   
-//   NumericMatrix big_c(theta.nrow(), clength);
+//   NumericMatrix big_c(theta.nrow(), c.length());
 //   
 //   //working
 //   NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
@@ -609,25 +606,23 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
                            NumericVector c){
   
-  int thetanrow = theta.nrow();
-  int clength = c.length();
   
-  NumericMatrix big_c(thetanrow, clength);
+  NumericMatrix big_c(theta.nrow(), c.length());
   
   //working
-  NumericMatrix big_delta_lqlt(thetanrow, lambda.length()); 
-  NumericMatrix big_h_lambda_rep(lambda.length(), thetanrow);
-  NumericMatrix big_h_lambda_rep_transpose(thetanrow, lambda.length());
+  NumericMatrix big_delta_lqlt(theta.nrow(), lambda.length()); 
+  NumericMatrix big_h_lambda_rep(lambda.length(), theta.nrow());
+  NumericMatrix big_h_lambda_rep_transpose(theta.nrow(), lambda.length());
   
-  NumericVector big_h_lambda(thetanrow);
-  NumericVector big_h_lambda_transpose(thetanrow);
+  NumericVector big_h_lambda(theta.nrow());
+  NumericVector big_h_lambda_transpose(theta.nrow());
   
   
-  for(int i = 0; i <thetanrow; i++){
+  for(int i = 0; i <theta.nrow(); i++){
     big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.01, n_sources, n_tracers);
   }
   
-  for(int i =0; i<thetanrow; i++){
+  for(int i =0; i<theta.nrow(); i++){
     big_h_lambda(i) = h_lambdacpp(n_sources, n_tracers,
                  concentrationmeans, sourcemeans,
                  correctionmeans,
@@ -642,7 +637,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   }
   
   for(int i=0; i<lambda.length(); i++){
-    for (int j=0; j < thetanrow; j++){
+    for (int j=0; j < theta.nrow(); j++){
       big_h_lambda_rep_transpose(j,i) = big_h_lambda_rep(i,j);
     }}
   
@@ -652,7 +647,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   //   c(i) = 0;
   //  }
   
-  // for(int i =0; i<thetanrow; i++){
+  // for(int i =0; i<theta.nrow(); i++){
   //   big_c(i,_) = c;
   // }
   
@@ -690,10 +685,10 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   
   
   
-  NumericMatrix big_h_minus_c(thetanrow, lambda.length());
-  //NumericMatrix big_h_minus_c_t(lambda.length(), thetanrow);
+  NumericMatrix big_h_minus_c(theta.nrow(), lambda.length());
+  //NumericMatrix big_h_minus_c_t(lambda.length(), theta.nrow());
   
-  for (int i = 0; i<thetanrow; i++){
+  for (int i = 0; i<theta.nrow(); i++){
     for(int j = 0; j<lambda.length(); j++){
       big_h_minus_c(i,j) = big_h_lambda_rep_transpose(i,j) - big_c(i,j);
     }

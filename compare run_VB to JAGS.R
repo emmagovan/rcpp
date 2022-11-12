@@ -36,6 +36,33 @@ ggplot() +
   geom_point(data = y, aes(x = d15N, y = d13C)) +
   geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
 
+
+# One isotope -----------------------------------------------------------------
+#This wont work until I fix c 
+mix = matrix(c(-10.13, -10.72, -11.39, -11.18, -10.81, -10.7, -10.54, 
+               -10.48, -9.93, -9.37), ncol=1, nrow=10)
+colnames(mix) = c('d13C')
+s_names = c("Zostera", "Grass", "U.lactuca", "Enteromorpha")
+s_means = matrix(c(-14, -15.1, -11.03, -14.44), ncol=1, nrow=4)
+s_sds = matrix(c(0.48, 0.38, 0.48, 0.43), ncol=1, nrow=4)
+c_means = matrix(c(2.63, 1.59, 3.41, 3.04), ncol=1, nrow=4)
+c_sds = matrix(c(0.41, 0.44, 0.34, 0.46), ncol=1, nrow=4)
+conc = matrix(c(0.02, 0.1, 0.12, 0.04), ncol=1, nrow=4)
+
+y <- as.data.frame(mix)
+n <- nrow(y)
+c_0 <- c(1)
+d_0 <- c(1)
+n_isotopes <- 1
+
+mu_kj <- s_means 
+colnames(mu_kj) <- c("Meand13C")
+K <- nrow(mu_kj)
+
+# Prior parameters
+fmean_0 <- c(rep(0, K))
+fsd_0 <- c(rep(1, K))
+
 # Run JAGS ----------------------------------------------------------------
 
 JAGS_data <- list(
@@ -69,7 +96,7 @@ JAGS_run <- jags(
 sourceCpp("run_VB.cpp")
 lambdastart = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))
 #lambdastart<-c(0,0,0,0,1,1,1,1,1,0,1,0,0,1,0,0,1,0,0,0,1)
-res<-run_VB_cpp(lambdastart, 4,2, conc, s_means, c_means, c_sds,
+res<-run_VB_cpp(lambdastart, K, n_isotopes, conc, s_means, c_means, c_sds,
                 s_sds, mix)
 
 #Check time --------------------------------------------------------------
@@ -84,8 +111,8 @@ simmr_in = simmr_load(mixtures=mix,
 
 library(microbenchmark)
 microbenchmark(simmr_out = simmr_mcmc(simmr_in),
-VB = run_VB_cpp(lambdastart, 4,2, conc, s_means, c_means, c_sds,
-           s_sds, mix), times = 10L
+VB_all= run_VB_cpp(lambdastart, 4,2, conc, s_means, c_means, c_sds,
+           s_sds, mix), times = 20L
 )
 
 
