@@ -652,33 +652,18 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   
   // Temp trying to get this to match r
   
-  NumericVector crep(100);
+  NumericVector crep(theta.nrow());
+
+    for (int i = 0; i<theta.nrow(); i++){
+      
+      crep(i) = c(i % c.length());
+      
+    }
+
   
-  for(int i =0; i<=17; i++){
-    crep(i) = c(i);
-  }
+
   
-  for(int i=18; i<=35; i++){
-    crep(i) = c(i-18);
-  }
-  
-  for(int i=36; i<=53; i++){
-    crep(i) = c(i-36);
-  }
-  
-  for(int i=54; i<=71; i++){
-    crep(i) = c(i-54);
-  }
-  
-  for(int i=72; i<=89; i++){
-    crep(i) = c(i-72);
-  }
-  
-  for(int i=90; i<=99; i++){
-    crep(i) = c(i-90);
-  }
-  
-  for(int i =0; i<18; i++){
+  for(int i =0; i<c.length(); i++){
     big_c(_,i) = crep;
   }
   
@@ -823,7 +808,7 @@ double LB_lambda_cpp(NumericMatrix theta, NumericVector lambda, NumericVector p,
 
 
 // [[Rcpp::export]]
-List run_VB_cpp(NumericVector lambdastart,
+NumericVector run_VB_cpp(NumericVector lambdastart,
                          int n_sources,
                          int n_tracers,
                          NumericMatrix concentrationmeans,
@@ -990,17 +975,18 @@ List run_VB_cpp(NumericVector lambdastart,
     t = t + 1;
     }
 
-  return Rcpp::List::create(Rcpp::Named("lambda") = lambda,
-                            Rcpp::Named("patience") = patience,
-                            Rcpp::Named("t_W") = t_W,
-                            Rcpp::Named("alpha_t") = alpha_t,
-                            Rcpp::Named("LB") = LB,
-                            Rcpp::Named("lambdastart") = lambdastart,
-                            Rcpp::Named("gbar") = g_bar,
-                            Rcpp::Named("g0") = g_0,
-                            Rcpp::Named("nu0") = nu_0,
-                            Rcpp::Named("nubar") = nu_bar
-                              );
+ return lambda;
+  // return Rcpp::List::create(Rcpp::Named("lambda") = lambda,
+  //                           Rcpp::Named("patience") = patience,
+  //                           Rcpp::Named("t_W") = t_W,
+  //                           Rcpp::Named("alpha_t") = alpha_t,
+  //                           Rcpp::Named("LB") = LB,
+  //                           Rcpp::Named("lambdastart") = lambdastart,
+  //                           Rcpp::Named("gbar") = g_bar,
+  //                           Rcpp::Named("g0") = g_0,
+  //                           Rcpp::Named("nu0") = nu_0,
+  //                           Rcpp::Named("nubar") = nu_bar
+  //                             );
   }
 
 // alpha_t <- min(eps_0, eps_0 * tau / t)
