@@ -75,7 +75,9 @@ simmr_ffvb<-function(simmr_in,
                n_tracers = simmr_in$n_tracers,
                group = simmr_in$n_groups, 
                source_names = simmr_in$source_names,
-               theta = thetares
+               theta = thetares,
+               groupnames = simmr_in$group,
+               input = simmr_in
   )
   
   class(mylist) <- "simmr_ffvb_output"
