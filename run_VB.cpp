@@ -173,16 +173,16 @@ double hcpp(int n_sources, int n_isotopes,
     double sigmatopsq1 = 0;
     double sigmabtmsq1 = 0;
 
-    NumericMatrix pxconc1(p.length(), concentrationmeans.ncol());
-    for(int i=0; i<n_sources; i++){
-      for(int j = 0; j<n_isotopes; j++){
-        pxconc1(i,j) = p(i)*concentrationmeans(i,j);
-      }}
+    // NumericMatrix pxconc1(p.length(), n_isotopes);
+    // for(int i=0; i<n_sources; i++){
+    //   for(int j = 0; j<n_isotopes; j++){
+    //     pxconc1(i,j) = p(i)*concentrationmeans(i,j);
+    //   }}
     
     // Calculate numerator and denominator of mu
     for(int i=0; i<n_sources; i++){
       for(int j=0; j<n_isotopes; j++){
-        mutop1 += pxconc1(i,j) * (sourcemeans(i,0) + correctionmeans(i,0));
+        mutop1 +=  p(i)*concentrationmeans(i,j) * (sourcemeans(i,0) + correctionmeans(i,0));
         mubtm1 += p(i) * concentrationmeans(i,j);
       }
     }
@@ -336,10 +336,8 @@ double log_q_cpp(NumericVector theta, NumericVector lambda,
   
   
   
-  
-  
-  
   NumericMatrix thetaminusmean(1, n_sources);
+  
   for(int i = 0; i <n_sources; i++){
     thetaminusmean(0,i) = theta(i) - lambda(i);
   }
@@ -421,7 +419,7 @@ double log_q_cpp(NumericVector theta, NumericVector lambda,
 // [[Rcpp::export]]
 NumericVector delta_lqltcpp(NumericVector lambda, NumericVector theta, 
                             double eps, int n_sources, int n_tracers) {
-  eps = 0.001;
+  // eps = 0.001;
   double k = lambda.length();
   NumericVector ans(k);
   NumericVector d(k);
@@ -464,42 +462,46 @@ double h_lambdacpp(int n_sources, int n_isotopes,
 
 // [[Rcpp::export]]
 NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
+  int xcol = x.ncol();
+  int ycol = y.ncol();
+  int xrow = x.nrow();
+  int yrow = y.nrow();
+  
+  NumericVector meanx(xcol);
+  NumericVector meany(ycol); 
+  NumericMatrix covmat(xcol, ycol);
   
   
-  NumericVector meanx(x.ncol());
-  NumericVector meany(y.ncol()); 
-  NumericMatrix covmat(x.ncol(), y.ncol());
-  
-  for(int i = 0; i<x.ncol(); i++){
+  for(int i = 0; i<xcol; i++){
     meanx(i) = mean(x(_,i));
   }
-  for(int i = 0; i<y.ncol(); i++){
+  for(int i = 0; i<ycol; i++){
     meany(i) = mean(y(_,i));
   }
   
-  NumericMatrix xminusmean(x.nrow(), x.ncol());
-  NumericMatrix yminusmean(y.nrow(), y.ncol());
+  NumericMatrix xminusmean(xrow, xcol);
+  NumericMatrix yminusmean(yrow, ycol);
   
-  for(int j = 0; j<x.ncol(); j++){
-    for(int i=0; i<x.nrow(); i++){
+  for(int j = 0; j<xcol; j++){
+    for(int i=0; i<xrow; i++){
       xminusmean(i,j) = x(i,j) - meanx(j);
     }
   }
   
-  for(int j = 0; j<y.ncol(); j++){
-    for(int i =0; i<y.nrow(); i++){
+  for(int j = 0; j<ycol; j++){
+    for(int i =0; i<yrow; i++){
       yminusmean(i,j) = y(i,j) - meany(j);
     }
   }
   
-  NumericMatrix sumxy(x.ncol(), y.ncol());
+  NumericMatrix sumxy(xcol, ycol);
   
-  NumericVector xcol(x.ncol());
-  NumericVector ycol(y.ncol());
+  // NumericVector xcol(x.ncol());
+  // NumericVector ycol(y.ncol());
   
-  for(int i = 0; i<x.ncol(); i++){
-    for(int j=0; j<y.ncol(); j++){
-      for(int n =0; n<x.nrow(); n++){
+  for(int i = 0; i<xcol; i++){
+    for(int j=0; j<ycol; j++){
+      for(int n =0; n<xrow; n++){
         
         sumxy(i,j) += xminusmean(n,i) * yminusmean(n,j);
       }
@@ -510,9 +512,9 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
     }}
   
   
-  for(int i=0; i<x.ncol(); i++){
-    for(int j = 0; j<y.ncol(); j++){
-      covmat(i,j) = sumxy(i,j)/(x.nrow()-1);
+  for(int i=0; i<xcol; i++){
+    for(int j = 0; j<ycol; j++){
+      covmat(i,j) = sumxy(i,j)/(xrow-1);
     }
   }
   
@@ -528,6 +530,7 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
                            NumericMatrix correctionmeans,
                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
                            NumericVector c){
+  
   
   NumericMatrix big_c(theta.nrow(), c.length());
   
@@ -569,26 +572,26 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   //   c(i) = 0;
   //  }
   
-  // for(int i =0; i<theta.nrow(); i++){
-  //   big_c(i,_) = c;
-  // }
+  for(int i =0; i<theta.nrow(); i++){
+    big_c(i,_) = c;
+  }
   
   // Temp trying to get this to match r
   
-  NumericVector crep(theta.nrow());
-
-    for (int i = 0; i<theta.nrow(); i++){
-      
-      crep(i) = c(i % c.length());
-      
-    }
-
-  
-
-  
-  for(int i =0; i<c.length(); i++){
-    big_c(_,i) = crep;
-  }
+  // NumericVector crep(theta.nrow());
+  // 
+  //   for (int i = 0; i<theta.nrow(); i++){
+  //     
+  //     crep(i) = c(i % c.length());
+  //     
+  //   }
+  // 
+  // 
+  // 
+  // 
+  // for(int i =0; i<c.length(); i++){
+  //   big_c(_,i) = crep;
+  // }
   
   
   

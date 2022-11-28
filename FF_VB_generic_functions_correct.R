@@ -18,8 +18,10 @@ nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
     ncol = length(c),
     nrow = nrow(theta),
     byrow = TRUE
-  )
-  return(colMeans(big_delta_lqlt * (big_h_lambda_rep - c)))
+  
+    )
+
+  return(colMeans(big_delta_lqlt * (big_h_lambda_rep - big_c)))
 }
 # nabla_LB(lambda, theta)
 
@@ -148,3 +150,4 @@ rMVNormC <- function(n, mu, U){
   X <- sweep(X, 1, mu, FUN=`+`)
   return(X)
 }
+

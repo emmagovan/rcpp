@@ -101,6 +101,7 @@ res<-run_VB_cpp(lambdastart, K, n_isotopes, conc, s_means, c_means, c_sds,
 
 #Check time --------------------------------------------------------------
 library(simmr)
+source("simmr_ffvb_rcpp.R")
 simmr_in = simmr_load(mixtures=mix,
                       source_names=s_names,
                       source_means=s_means,
@@ -111,8 +112,7 @@ simmr_in = simmr_load(mixtures=mix,
 
 library(microbenchmark)
 microbenchmark(simmr_out = simmr_mcmc(simmr_in),
-VB_all= run_VB_cpp(lambdastart, 4,2, conc, s_means, c_means, c_sds,
-           s_sds, mix), times = 20L
+VB_all= simmr_ffvb(simmr_in), times = 10L
 )
 
 
@@ -152,8 +152,8 @@ sim_theta <- function(S, lambda) {
   
   return(theta)
 }
-# K <- 4; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
-# theta <- sim_theta(50, lambda)
+# K <- 4; lambda <- c(0,0,0,0, rep(1,14))
+# theta <- sim_theta(100, lambda)
 
 # Log of likelihood added to prior
 h <- function(theta) {
@@ -208,7 +208,7 @@ f_VB_r <-all_VB_r[,1:K]
 for (i in 1:K) {
   print(data.frame(
     f = c(f_JAGS[,i], f_VB[,i]),
-    Fit = c(rep('JAGS', n), c(rep("VB", n)))
+    Fit = c(rep('JAGS', n), c(rep("all_VB", n)))
   ) %>% ggplot(aes(x = f, fill = Fit)) + geom_density(alpha = 0.5) + 
     ggtitle(paste("f: Iso",i)))
 }
