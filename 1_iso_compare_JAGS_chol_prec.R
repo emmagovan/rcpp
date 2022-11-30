@@ -32,25 +32,24 @@ library(R2jags)
 
 mix <- matrix(c(
   -10.13, -10.72, -11.39, -11.18, -10.81, -10.7, -10.54,
-  -10.48, -9.93, -9.37, 11.59, 11.01, 10.59, 10.97, 11.52, 11.89,
-  11.73, 10.89, 11.05, 12.3
-), ncol = 2, nrow = 10)
-colnames(mix) <- c("d13C", "d15N")
+  -10.48, -9.93, -9.37
+), ncol = 1, nrow = 10)
+colnames(mix) <- c("d13C")
 s_names <- c("Zostera", "Grass", "U.lactuca", "Enteromorpha")
-s_means <- matrix(c(-14, -15.1, -11.03, -14.44, 3.06, 7.05, 13.72, 5.96), ncol = 2, nrow = 4)
-s_sds <- matrix(c(0.48, 0.38, 0.48, 0.43, 0.46, 0.39, 0.42, 0.48), ncol = 2, nrow = 4)
-c_means <- matrix(c(2.63, 1.59, 3.41, 3.04, 3.28, 2.34, 2.14, 2.36), ncol = 2, nrow = 4)
-c_sds <- matrix(c(0.41, 0.44, 0.34, 0.46, 0.46, 0.48, 0.46, 0.66), ncol = 2, nrow = 4)
-conc <- matrix(c(0.02, 0.1, 0.12, 0.04, 0.02, 0.1, 0.09, 0.05), ncol = 2, nrow = 4)
+s_means <- matrix(c(-14, -15.1, -11.03, -14.44), ncol = 1, nrow = 4)
+s_sds <- matrix(c(0.48, 0.38, 0.48, 0.43), ncol = 1, nrow = 4)
+c_means <- matrix(c(2.63, 1.59, 3.41, 3.04), ncol = 1, nrow = 4)
+c_sds <- matrix(c(0.41, 0.44, 0.34, 0.46), ncol = 1, nrow = 4)
+conc <- matrix(c(0.02, 0.1, 0.12, 0.04), ncol = 1, nrow = 4)
 
 y <- as.data.frame(mix)
 n <- nrow(y)
-c_0 <- c(1, 1)
-d_0 <- c(1, 1)
-n_isotopes <- 2
+c_0 <- c(1)
+d_0 <- c(1)
+n_isotopes <- 1
 
 mu_kj <- s_means 
-colnames(mu_kj) <- c("Meand13C", "Meand15N")
+colnames(mu_kj) <- c("Meand13C")
 K <- nrow(mu_kj)
 
 # Prior parameters
@@ -59,8 +58,8 @@ fsd_0 <- c(rep(1, K))
 
 # # Create an iso-space plot
 ggplot() +
-  geom_point(data = y, aes(x = d15N, y = d13C)) +
-  geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
+  geom_point(data = y, aes(x = d13C)) +
+  geom_point(data = as.data.frame(mu_kj), aes(x = Meand13C), colour = "red", shape = 18, size = 3)
 
 # Run JAGS ----------------------------------------------------------------
 
@@ -128,24 +127,19 @@ sim_theta <- function(S, lambda) {
   
   return(theta)
 }
-# K <- 4; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
+# K <- 3; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
 # theta <- sim_theta(50, lambda)
 
 # Log of likelihood added to prior
 h <- function(theta) {
   p <- exp(theta[1:K]) / (sum((exp(theta[1:K]))))
-  return(sum(dnorm(y[, 1],
-                   mean = sum(p * conc * (mu_kj[, 1]+c_means[,1]))/sum(p*conc),
-                   sd = sqrt(sum(p^2 * conc^2 * (s_sds[, 1]^2+c_sds[,1]^2))/sum(p^2*conc^2) + 1 / theta[K + 1]),
+  return(sum(dnorm(y[,1],
+                   mean = sum(p * conc * (mu_kj+c_means))/sum(p*conc),
+                   sd = sqrt(sum(p^2 * conc^2 * (s_sds^2+c_sds^2))/sum(p^2*conc^2) + 1 / theta[K + 1]),
                    log = TRUE
-  )) +
-    sum(dnorm(y[, 2],
-              mean = sum(p * conc * (mu_kj[, 2]+c_means[,2]))/sum(p*conc),
-              sd = sqrt(sum(p^2 * conc^2 * (s_sds[, 2]^2+c_sds[,2]^2))/sum(p^2*conc^2) + 1 / theta[K + 2]),
-              log = TRUE
-    )) +
+  ))  +
     sum(dnorm(theta[1:K], fmean_0, fsd_0, log = TRUE)) +
-    sum(dgamma(theta[(K + 1):(K + 2)], shape = c_0, rate = d_0, log = TRUE)))
+    sum(dgamma(theta[(K + 1)], shape = c_0, rate = d_0, log = TRUE)))
 }
 # h(theta[1,])
 
@@ -161,22 +155,23 @@ log_q <- function(lambda, theta) {
   p1 <- matrix(theta[1:K] - mean, nrow = 1) %*% t(chol_prec)
   # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
   return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec))) - 0.5 * p1%*%t(p1)
-         + sum(dgamma(theta[(K + 1):(K + 2)],
+         + sum(dgamma(theta[(K + 1)],
                       shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes)],
                       rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
                       log = TRUE
          )))
 }
+#log_q(lambda, theta[1,])
 
 # Now run it!
-lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
+lambda <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
 
 # Perform comparisons -----------------------------------------------------
 
 # Get all the parameters from JAGS and VB
 f_JAGS <- JAGS_run$BUGSoutput$sims.list$f
 n <- nrow(f_JAGS)
-all_vb <- sim_theta(n, lambda_out)
+all_vb <- sim_theta(n, lambda)
 f_VB <- all_vb[,1:K]
 
 for (i in 1:K) {
@@ -242,4 +237,3 @@ ggplot() +
              colour = 'green', alpha = 0.5) + 
   geom_point(data = y, aes(x = d15N, y = d13C)) +
   geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
-

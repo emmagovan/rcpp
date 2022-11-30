@@ -1,0 +1,417 @@
+
+---
+title: 'Model 1: Fixed form variational Bayes for a simple mean/variance normal model'
+author: "Emma Govan"
+date: "10/6/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(invgamma)
+library(bayesAB)
+library(R2jags)
+library(progress)
+```
+
+## Introduction
+
+This file contains the maths and code for running a simple univariate normal unknown mean/variance model through a Fixed Form Variational Bayes (FFVB) algorithm. The text below introduces the model, outlines the algorithm, fits the model using MCMC (via JAGS) and then fits the FFVB algorithm. Finally the two approaches are compared using plots of the derived posterior distributions. 
+
+## Model
+
+We use the likelihood:
+
+$$y \sim N(\mu, \sigma^2)$$
+
+where $y$ is the data and $\mu$ and $\sigma$ are the parameters to be estimated. 
+
+We use the following prior distributions for $\mu$ and $\sigma$:
+
+$$\mu \sim N(\mu_0, \sigma^2_0)$$
+
+$$\sigma^2 \sim InvGa(\alpha_0, \beta_0)$$
+
+Here $\mu_0, \sigma_0, \alpha_0$, and $\beta_0$ are all fixed.
+
+## Fixed Form Variational Inference
+
+The algorithm detailed below comes from Algorithm 4 [here](https://vbayeslab.github.io/VBLabDocs/tutorial/ffvb).
+
+If we define the joint set of parameters as $\theta = (\mu, \sigma^2)$ then we write the factorised variational posterior as:
+
+$$q_\lambda(\theta) = q(\mu)q(\sigma)$$
+
+where $\lambda = (\mu_\mu, \sigma^2_\mu, \alpha_{\sigma}, \beta_{\sigma})^T$ is the set of hyper-parameters associated with the variational posteriors:
+
+$$q(\mu) \equiv N(\mu_\mu, \sigma^2_\mu)$$
+$$q(\sigma^2) \equiv InvGa(\alpha_{\sigma}, \beta_{\sigma})$$
+
+We use parenthetical super-scripts to denote iterations. To start the algorithm, initial values are required for $\lambda^{(0)}$, the sample size $S$, the adaptive learning weights ($\beta_1, \beta_2$), the fixed learning rate $\epsilon_0$, the threshold $\tau$, the rolling window size $t_W$ and the maximum patience $P$. 
+
+Define $h$ to be the log of the joint distribution up to the constant of proportionality:
+
+$$h(\theta) = \log \left( p(y|\theta) p(\theta) \right)$$
+and $h_\lambda$ to be the log of the ratio between the joint and the VB posterior:
+
+$$h_\lambda(\theta) = \log \left( \frac{ p(y|\theta) p(\theta) }{ q_\lambda(\theta) } \right) = h(\theta) - \log q_\lambda(\theta) $$
+
+The initialisation stage proceeds with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(0)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$\widehat{\nabla_\lambda{LB}(\lambda^{(0)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ h_\lambda(\theta_s) \bigg\rvert_{\lambda = \lambda^{(0)}}$$
+where $\circ$ indicates elementwise multiplication
+3. Set $\bar{g}_0 := \nabla_\lambda{LB}(\lambda^{(0)})$, $\bar{\nu_0} := \bar{g_0}^2$, $\bar{g} = g_0$, $\bar{\nu} = \nu_0$
+4. Estimate the control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+across the samples generated in step 1
+5. Set $t=1$, patience = 0, and `stop = FALSE`
+
+Now the algorithm runs with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(t)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$g_t := \widehat{\nabla_\lambda{LB}(\lambda^{(t)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ(h_\lambda(\theta_s) - c) \bigg\rvert_{\lambda = \lambda^{(t)}}$$
+where $\circ$ indicates elementwise multiplication.
+3. Estimate the new control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+across the samples generated in step 1
+4. Compute: 
+\begin{eqnarray}
+v_t &=& g_t^2 \\
+\bar{g} &=& \beta_1\bar{g} + (1-\beta_1)g_t \\
+\bar{v} &=& \beta_2\bar{v} + (1-\beta_2)v_t \\
+\end{eqnarray}
+5. Update the learning rate:
+$l_t = min(\epsilon_0, \epsilon_0\frac{\tau}{t})$
+and the variational hyper-parameters:
+$$\lambda^{(t+1)} = \lambda^{(t)} + l_t\frac{\bar{g}}{\sqrt{\bar{v}}}$$
+6. Compute the lower bound estimate:
+$$\widehat{LB}(\lambda^{(t)}) := \frac{1}{S} \sum_{s=1}^S h_{\lambda^{(t)}}(\theta_s)$$
+7. If $t \ge t_W$ compute the moving average LB
+$$\overline{LB}_{t-t_W+1} := \frac{1}{t_W} \sum_{k=1}^{t_W} \widehat{LB}(\lambda^{(t-k + 1)})$$
+If $\overline{LB}_{t-t_W+1} \ge \max(\bar{LB})$ patience = 0, else patience = patience +1
+8. If patience $\ge$ P, `stop = TRUE`
+9. Set $t:=t+1$
+
+## Data and hyper-parameters
+
+The data set we use is defined as follows:
+```{r}
+y <- c(11, 12, 8, 10, 9, 8, 9, 10, 13, 7)
+n <- length(y)
+```
+
+The hyper-parameter values for the prior distributions:
+```{r}
+mu_0 <- 10
+sigma_sq_0 <- 3
+alpha_0 <- 1
+beta_0 <- 4
+```
+
+## JAGS code for comparison
+
+As a benchmark, we fit this model using JAGS with the following code:
+  
+```{r, message=FALSE, results = 'hide'}
+model_code <- "
+model {
+  # Likelihood
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu, tau)
+  }
+  # Priors
+  mu ~ dnorm(mu_0, sigma_sq_0^-1)
+  tau ~ dgamma(alpha_0, beta_0)
+}
+"
+
+# Set up the data
+model_data <- list(
+  n = n, y = y,
+  mu_0 = mu_0, sigma_sq_0 = sigma_sq_0,
+  alpha_0 = alpha_0, beta_0 = beta_0
+)
+
+# Choose which parameters to save
+model_parameters <- c("mu", "tau")
+
+# Run the model
+model_run <- jags(
+  data = model_data,
+  parameters.to.save = model_parameters,
+  model.file = textConnection(model_code),
+)
+```
+
+Print the output
+```{r}
+print(model_run)
+```
+
+## FFVB definitions for this model
+
+The log of the joint distribution is given by: 
+
+\begin{eqnarray}
+h(\theta) &=& \log(p(\mu)p(\sigma^2)p(y|\mu, \sigma^2)) \\
+&=& -\frac{n+1}{2}\log{2\pi} - 0.5\log(\sigma_0^2) +\alpha_0\log(\beta_0) -\log\Gamma(\alpha_0)\\
+& &- \left( \frac{n}{2}+\alpha_0+1 \right) \log(\sigma^2) -\frac{\beta_0}{\sigma^2}-\frac{1}{2\sigma^2}\sum_{i=1}^n(y_i-\mu)^2\\
+\end{eqnarray}
+
+The log of the variational approximation is given by:
+  
+\begin{eqnarray}
+\log{q_\lambda(\theta)} &=& \log(\beta_{\sigma}) - \log\Gamma(\alpha_{\sigma}+1) - (\alpha_{\sigma} +1) \log\sigma^2 - \frac{\beta_{\sigma}}{\sigma^2} \\
+& &- 0.5\log(2\pi)-0.5\log(\sigma_\mu^2) - \frac{(\mu-\mu_\mu)^2}{2\sigma_\mu^2}\\
+\end{eqnarray}
+
+Finally, the derivative of the variational approximation for each of the four parameters is given by:
+  
+\begin{eqnarray}
+\nabla_\lambda\log{q_\lambda}(\theta) &=& \left( \frac{\mu-\mu_\mu}{\sigma_\mu^2}, -\frac{1}{2\sigma_\mu^2} + \frac{\mu-\mu_\mu^2}{2\sigma_\mu^4}, \log\beta_{\sigma} - \frac{\Gamma'(\alpha_{\sigma})}{\Gamma(\alpha_{\sigma})} - \log\sigma^2, \frac{\alpha_{\sigma}}{\beta_{\sigma}} - \frac{1}{\sigma^2} \right) \\
+\end{eqnarray}
+
+## FFVB code for this model
+
+I think the issue is the maths is done for sigma^2 and this is done for sigma.
+So either change the maths - which ive tried and it didn't work.
+or when its going into the distribution get the square root of it?
+
+```{r}
+n_param <- 2 # Number of parameters in theta
+n_vb_param <- 4 # Number of parameters in lambda
+n_iter <- 50000 # Number of iterations
+S <- 100 # Number of samples per iteration
+learningratea <- 0.1 # Learning rate a
+threshold <- 10000 # how long we use the above learning rates before decreasing them
+tw <- 50 # suggested value
+patience <- 0
+P <- 50
+cutoff <- c(0.005, 0.0005, 0.005, 0.005)
+
+# Variational hyper-parameters
+
+# Set up a progress bar
+pb <- progress_bar$new(total = n_iter)
+
+# Storage for theta = (mu, sigma_sq)
+theta <- vector("list", length = n_param)
+names(theta) <- c("mu", "sigma_sq")
+theta_dists <- c("rnorm", "rinvgamma")
+for (i in 1:n_param) theta[[i]] <- matrix(NA, nrow = n_iter, ncol = S)
+
+# Storage for variational parameters lambda
+lambda <- vector('list', length = n_param)
+names(lambda) <- names(theta)
+lambda$mu <- data.frame( # NOTE: THESE NEED TO MATCH THE PARAMETERS OF THE DISTRIBUTIONS ABOVE!
+  "mean" = rep(NA, length = n_iter), 
+  "sd" = NA)
+lambda$sigma_sq <- data.frame(
+  "shape" = rep(NA, length = n_iter), 
+  "rate" = NA
+)
+
+# Learning rates associated with lambda
+l <- vector('list', length = n_param)
+names(l) <- c('mu', "sigma_sq")
+l$mu$mean = 0.1
+l$mu$sd = 0.001
+l$sigma_sq$shape = 0.01
+l$sigma_sq$rate = 0.01
+learning <- l
+
+# Starting values for theta
+# theta$mu[1] <- mean(y)
+# theta$sigma_sq[1] <- var(y)
+
+# Starting values for lambda
+lambda$mu$mean[1] <- mean(y)
+lambda$mu$sd[1] <- 4
+lambda$sigma_sq$shape[1] <- 2
+lambda$sigma_sq$rate[1] <- 5
+
+# Starting samples for theta
+theta$mu[1, ] <- rnorm(S, mean = lambda$mu$mean[1], sd = sqrt(lambda$mu$sd[1]))
+theta$sigma_sq[1, ] <- rinvgamma(S, lambda$sigma_sq$shape[1], scale = lambda$sigma_sq$rate[1])
+
+# Define the functions h, log_q, and delta_lqlt
+h <- function(lambda, theta, y, iter, samp) {
+  n <- length(y)
+  ans <- -(((n + 1) / 2) * log(2 * pi)) 
+  - (0.5 * log(lambda$mu$sd[1])) - (((theta$mu[iter, samp] - lambda$mu$mean[1])^2) / (2 * lambda$mu$sd[1]^2)) + (lambda$sigma_sq$shape[1] * log(lambda$sigma_sq$rate[1])) - lgamma(lambda$sigma_sq$shape[1]) - ((n / 2 + lambda$sigma_sq$shape[1] + 1) * log(theta$sigma_sq[iter, samp])) - (lambda$sigma_sq$rate[1] / theta$sigma_sq[iter, samp]) - ((1 / (2 * theta$sigma_sq[iter, samp]^2)) * (sum((y - theta$mu[iter, samp])^2)))
+  return(ans)
+}
+
+
+log_q <- function(lambda, theta, iter, samp) {
+  ans <- (lambda$sigma_sq$shape[iter - 1] * log(lambda$sigma_sq$rate[iter - 1])) - lgamma(lambda$sigma_sq$shape[iter - 1]) - ((lambda$sigma_sq$shape[iter - 1] + 1) * log(theta$sigma_sq[iter, samp])) - (lambda$sigma_sq$rate[iter - 1] / theta$sigma_sq[i, j]) - (0.5 * log(2 * pi)) - (0.5 * log(lambda$mu$sd[iter - 1])) - (((theta$mu[iter, samp] - lambda$mu$mean[iter - 1])^2) / (2 * lambda$mu$sd[iter - 1]^2))
+  return(ans)
+}
+
+
+
+delta_lqlt <- function(lambda, theta, iter, samp) {
+  ans <- c((
+    theta$mu[iter, samp] - lambda$mu$mean[iter - 1]) / lambda$mu$sd[iter - 1],
+           -(1 / (2 * lambda$mu$sd[iter - 1])) + (((theta$mu[iter, samp] - lambda$mu$mean[iter - 1])^2) / (2 * (lambda$mu$sd[iter - 1])^2)),
+           log(lambda$sigma$rate[iter - 1]) - digamma(lambda$sigma$shape[iter - 1]) - log(theta$sigma_sq[iter, samp]),
+           (lambda$sigma$shape[iter - 1]) / (lambda$sigma$rate[iter - 1]) - (1 / (theta$sigma_sq[iter, samp])))
+  return(ans)
+}
+
+
+# Storage for items in loop
+h_theta <- matrix(rep(NA, n_iter * S), nrow = n_iter, ncol = S)
+log_q_lambda_theta <- matrix(rep(NA, n_iter * S), nrow = n_iter, ncol = S)
+delta_lqlt_in_loop <- array(rep(NA, n_iter * n_vb_param * S), dim = c(n_iter, S, n_vb_param))
+
+# Other quantities required
+nabla_LB <- matrix(rep(NA, n_iter * n_vb_param), ncol = n_vb_param, nrow = n_iter)
+gbar <- matrix(rep(NA, n_iter * n_vb_param), ncol = n_vb_param, nrow = n_iter)
+vbar <- matrix(rep(NA, n_iter * n_vb_param), ncol = n_vb_param, nrow = n_iter)
+
+
+LB <- array(rep(NA, n_iter * n_vb_param * S), dim = c(n_iter, S, n_vb_param))
+
+stopping_LB <- c(rep(NA, n_iter))
+bar_LB <- c(rep(NA, n_iter))
+bar_LB_loop <- matrix(rep(NA, n_iter * tw), ncol = tw, nrow = n_iter)
+
+# Starting values for these quantities
+gbar[1, ] <- c(rep(1, n_vb_param))
+vbar[1, ] <- c(rep(1, n_vb_param))
+# nabla_LB[1,]<-c(rep(0, n_vb_param))
+
+# Finally starting values for the covariance values
+convar <- matrix(rep(NA, n_iter * n_vb_param), nrow = n_iter, ncol = n_vb_param)
+convar[1, ] <- c(rep(1, n_vb_param))
+
+for (i in 2:n_iter) {
+  pb$tick()
+  lambda$mu$sd[i-1]<-sqrt(lambda$mu$sd[i-1])
+
+  # Simulate from the current variational posterior
+  for(j in 1:length(theta)) {
+    # Get the correct distribution
+    dist <- get(theta_dists[j])
+    #Get sqrt of lambda for distribution?
+    
+    # Get the parameters for this distribution
+    pars <- as.list(unlist(list(n = S, lambda[[j]][i-1,])))
+    # Call the sampler
+    theta[[j]][i,] <- do.call(dist, pars)
+  }
+  lambda$mu$sd[i-1]<-(lambda$mu$sd[i-1])^2
+  
+  # theta$mu[i, ] <- rnorm(S, lambda$mu$mean[i - 1], sqrt(lambda$mu$sd[i - 1]))
+  # theta$sigma_sq[i, ] <- rinvgamma(S, shape = lambda$sigma_sq$shape[i - 1], rate = lambda$sigma_sq$rate[i - 1])
+
+  for (j in 1:S) {
+
+    #
+    h_theta[i, j] <- h(lambda, theta, y, i, j)
+    log_q_lambda_theta[i, j] <- log_q(lambda, theta, i, j)
+    delta_lqlt_in_loop[i, j, ] <- delta_lqlt(lambda, theta, i, j)
+
+
+
+
+    LB[i, j, ] <- (delta_lqlt_in_loop[i, j, ]) * ((h_theta[i, j] - log_q_lambda_theta[i, j]) - convar[i - 1, ])
+  }
+
+  for (k in 1:n_vb_param) {
+    convar[i, k] <- (cov((delta_lqlt_in_loop[i, , k] * (h_theta[i, ] - log_q_lambda_theta[i, ])), delta_lqlt_in_loop[i, , k])) / (var(delta_lqlt_in_loop[i, , k]))
+  }
+
+  # For each iteration we take 100 samples - here we get the average of those samples for each parameter
+
+  nabla_LB[i, ] <- (1 / S) * colSums(LB[i, , ]) # colMeans
+  # stopping_LB[i] <- (1/S) * sum(h_theta[i,]-log_q_lambda_theta[i,]) #LB hat
+  #
+  #
+  #  if(i>tw){
+  #   for(w in 1:tw){
+  #  bar_LB_loop[i,w] <- (stopping_LB[(i-w+1)])
+  #  }
+  # bar_LB[(i-tw+1)] <- (1/tw) * sum(bar_LB_loop[i,])
+  #
+  # if((bar_LB[i-tw+1]) >= max(bar_LB, na.rm = TRUE)){patience = 0} else{patience=patience+1}
+  # }
+  
+  gbar[i, ] <- learningratea * gbar[i - 1, ] + (1 - learningratea) * nabla_LB[i, ]
+
+  vbar[i, ] <- learningratea * vbar[i - 1, ] + (1 - learningratea) * (nabla_LB[i, ]^2)
+
+
+  # update hyperparameters and learning rate
+  #stop()
+  for(k in 1:n_param) {
+    for(j in 1:ncol(lambda[[k]])) {
+      learning[[k]][[j]] <- min(l[[k]][[j]], l[[k]][[j]] * (threshold / i))
+      lambda[[k]][[j]][i] <- lambda[[k]][[j]][i - 1] + learning[[k]][[j]] * (gbar[i, k] / (sqrt(vbar[i, k])))
+    }
+  }
+  
+  # for (m in 1:n_param) {
+  #   for (k in 1:n_param){
+  #   learning[[c(k, m)]] <- min(l[[c(k,m)]], l[[c(k,m)]] * (threshold / i))
+  #   lambda[[c(k,m)]][i] <- lambda[[c(k,m)]][i - 1] + learning[[c(k,m)]] * #(gbar[i,)] / (sqrt(vbar[i, k]))) this bit is wrong need to fix it
+  #   }
+  # }
+
+  # if ((abs(lambda[[c(1,1)]][i] - lambda[[c(1,1)]][i - 1]) < cutoff[1]) & (abs(lambda[[c(1,2)]][i] - lambda[[c(1,2)]][i - 1]) < cutoff[2]) & (abs(lambda[[c(2,1)]][i] - lambda[[c(2,1)]][i - 1]) < cutoff[3]) & (abs(lambda[[c(2,2)]][i] - lambda[[c(2,2)]][i - 1]) < cutoff[4])) {
+  #   patience <- patience + 1
+  # } else {
+  #   patience <- patience
+  # }
+  # 
+  # if (patience >= P) {
+  #   break
+  # }
+}
+
+
+plot(lambda$mu$mean)
+plot(lambda$mu$sd)
+plot(lambda$sigma_sq$shape)
+plot(lambda$sigma_sq$rate)
+plot(LB[, 100, 2])
+```
+
+
+
+## Comparison Plots
+```{r}
+mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "blue50")
+mycol2 <- rgb(255, 0, 0, max = 255, alpha = 125)
+
+n_iter <- i
+
+# Generate mu sample
+hx <- rnorm(8000, mean(lambda$mu$mean[(n_iter - 1000):n_iter]), (mean((lambda$mu$sd[(n_iter - 1000):n_iter]))))
+
+# Plot JAGS vs VB
+hist((model_run$BUGSoutput$sims.list$mu), col = mycol2)
+hist(hx[1:3000], col = mycol, add = TRUE, alpha = 0.5, breaks = 10)
+
+# Generate sigma sample
+samplesigmasq <- rgamma(3000, shape = mean(lambda$sigma_sq$shape[(n_iter - 1000):n_iter]), rate = mean(lambda$sigma_sq$rate[(n_iter - 1000):n_iter]))
+
+
+# Plot JAGS vs VB
+hist(((model_run$BUGSoutput$sims.list$tau)), col = mycol2, breaks = 10)
+
+hist(samplesigmasq)
+hist(((samplesigmasq)), add = TRUE, col = mycol, breaks = 10)
+```
+
+
+
+## Conclusions
+This model appears to be working well. For the next model I will add an extra fixed term into the error e.g. $\sigma^2 +5$ or something similar and leave everything else the same

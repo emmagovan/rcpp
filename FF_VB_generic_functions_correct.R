@@ -21,7 +21,7 @@ nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
   
     )
 
-  return(colMeans(big_delta_lqlt * (big_h_lambda_rep - big_c)))
+  return(colMeans(big_delta_lqlt * ((big_h_lambda_rep) - big_c)))
 }
 # nabla_LB(lambda, theta)
 

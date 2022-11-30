@@ -1,0 +1,401 @@
+---
+title: "2IsoClrMVN"
+author: "Emma Govan"
+date: "6/7/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(tidyverse)
+library(R2jags)
+library(ggplot2)
+library(gtools)
+library(LaplacesDemon)
+
+set.seed(123)
+```
+
+## Introduction
+
+This file contains the maths and code for running a simple stable isotope mixing model through a Fixed Form Variational Bayes (FFVB) algorithm. The text below introduces the model, outlines the algorithm, fits the model using MCMC (via JAGS) and then fits the FFVB algorithm. Finally the two approaches are compared using plots of the derived posterior distributions. 
+
+## Model
+
+We use the likelihood:
+
+$$y_{i} \sim N(\sum_{k=1}^Kp_k\mu_{k}, \tau^{-1})$$
+
+where $y$ is the data and $p$ and $\tau$ are the parameters to be estimated. 
+
+We use the following prior distributions for $p$ and $\tau$:
+
+$[p_1,...p_k] = \frac{\exp(f)}{\Sigma\exp(f)}$
+
+$f \sim mvn(\mu_f, \Sigma_f)$
+
+$\tau \sim Ga(c, d)$
+
+Priors for f and tau:
+
+$$\pi(f) = \frac{1}{(2\pi)^\frac{n}{2}}\frac{1}{\mid(\Sigma_{f0})\mid^{\frac{1}{2}}} \exp\left(-\frac{1}{2}(f-\mu_{f0})^T\Sigma_{f0}^{-1}(f-\mu_{f0})\right) $$
+But we just use sum dnorm here
+
+$$\pi(\tau) = \frac{d_0^{c_0}}{\Gamma(c_0)} \tau_j^{c_0-1} \exp(-d_0\tau_j)$$
+Here $\mu_{f0}, \Sigma_{f0}, c_0$, and $d_0$ are all fixed.
+
+## Fixed Form Variational Inference
+
+The algorithm detailed below comes from Algorithm 4 [here](https://vbayeslab.github.io/VBLabDocs/tutorial/ffvb).
+
+If we define the joint set of parameters as $\theta = (f, \tau)$ then we write the factorised variational posterior as:
+
+$$q_\lambda(\theta) = q(f)q(\tau)$$
+
+where $\lambda = (\mu_f, \Sigma_f, c, d)^T$ is the set of hyper-parameters associated with the variational posteriors:
+
+$$q(f) \equiv mvn(\mu_f, \Sigma_f)$$
+
+$$q(\tau) \equiv Ga(c,d)$$
+
+We use parenthetical super-scripts to denote iterations. To start the algorithm, initial values are required for $\lambda^{(0)}$, the sample size $S$, the adaptive learning weights ($\beta_1, \beta_2$), the fixed learning rate $\epsilon_0$, the threshold $\tau$, the rolling window size $t_W$ and the maximum patience $P$. 
+
+Define $h$ to be the log of the joint distribution up to the constant of proportionality:
+
+$$h(\theta) = \log \left( p(y|\theta) p(\theta) \right)$$
+and $h_\lambda$ to be the log of the ratio between the joint and the VB posterior:
+
+$$h_\lambda(\theta) = \log \left( \frac{ p(y|\theta) p(\theta) }{ q_\lambda(\theta) } \right) = h(\theta) - \log q_\lambda(\theta) $$
+
+
+The initialisation stage proceeds with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(0)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$\widehat{\nabla_\lambda{LB}(\lambda^{(0)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ h_\lambda(\theta_s) \bigg\rvert_{\lambda = \lambda^{(0)}}$$
+where $\circ$ indicates elementwise multiplication
+3. Set $\bar{g}_0 := \nabla_\lambda{LB}(\lambda^{(0)})$, $\bar{\nu_0} := \bar{g_0}^2$, $\bar{g} = g_0$, $\bar{\nu} = \nu_0$
+4. Estimate the control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+
+across the samples generated in step 1
+5. Set $t=1$, patience = 0, and `stop = FALSE`
+
+Now the algorithm runs with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(t)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$g_t := \widehat{\nabla_\lambda{LB}(\lambda^{(t)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ(h_\lambda(\theta_s) - c) \bigg\rvert_{\lambda = \lambda^{(t)}}$$
+
+
+where $\circ$ indicates elementwise multiplication.
+3. Estimate the new control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+across the samples generated in step 1
+4. Compute: 
+\begin{eqnarray}
+v_t &=& g_t^2 \\
+\bar{g} &=& \beta_1\bar{g} + (1-\beta_1)g_t \\
+\bar{v} &=& \beta_2\bar{v} + (1-\beta_2)v_t \\
+\end{eqnarray}
+5. Update the learning rate:
+$l_t = min(\epsilon_0, \epsilon_0\frac{\tau}{t})$
+and the variational hyper-parameters:
+$$\lambda^{(t+1)} = \lambda^{(t)} + l_t\frac{\bar{g}}{\sqrt{\bar{v}}}$$
+
+6. Compute the lower bound estimate:
+$$\widehat{LB}(\lambda^{(t)}) := \frac{1}{S} \sum_{s=1}^S h_{\lambda^{(t)}}(\theta_s)$$
+7. If $t \ge t_W$ compute the moving average LB
+$$\overline{LB}_{t-t_W+1} := \frac{1}{t_W} \sum_{k=1}^{t_W} \widehat{LB}(\lambda^{(t-k + 1)})$$
+If $\overline{LB}_{t-t_W+1} \ge \max(\bar{LB})$ patience = 0, else patience = patience +1
+8. If patience $\ge$ P, `stop = TRUE`
+9. Set $t:=t+1$
+
+## Data and hyper-parameters
+
+The data set we use is defined as follows:
+```{r}
+col1<-rnorm(10, mean = 1, sd =0.2)
+col2<-rnorm(10, mean = 1, sd=0.2)
+y<-matrix(c(col1, col2), ncol = 2, byrow = FALSE)
+colnames(y)<-c("d15N", "d13C")
+y<-as.data.frame(y)
+n<-nrow(y)
+```
+
+The hyper-parameter values for the prior distributions:
+```{r}
+c_0 <- c(1,1)
+d_0 <- c(1,1)
+n_isotopes <- 2
+
+mu_kj <- matrix(c(1,10,1,10), nrow = 2)
+colnames(mu_kj)<-c("Meand15N", "Meand13C")
+K<-nrow(mu_kj)
+```
+
+## JAGS code for comparison
+
+As a benchmark, we fit this model using JAGS with the following code:
+  
+```{r, message=FALSE, results = 'hide'}
+model_code <- "
+model{
+  # Likelihood
+  for (j in 1:J) {
+    for (i in 1:N) {
+      y[i,j] ~ dnorm(inprod(p, s_mean[,j]), tau[j])
+    }
+    
+  }
+  # Prior on sigma
+  for(j in 1:J) { tau[j] ~ dgamma(1,1) }
+  # CLR prior on p
+  p[1:K] <- expf/sum(expf)
+  for(k in 1:K) {
+    expf[k] <- exp(f[k])
+    f[k] ~ dnorm(mu_f_mean[k],1/pow(sigma_f_sd[k],2))
+  }
+}
+"
+
+# Set up the data - these match the data objects in the jags code
+model_data <- list(
+  N = length(y),
+  y = y,
+  s_mean = mu_kj,
+  #c_mean = mu_c,
+  #s_sd = sigma_kj,
+  #c_sd = sigma_c,
+  #q = q,
+  K = K,
+  J = n_isotopes,
+  mu_f_mean = c(rep(0, K)),
+  sigma_f_sd = c(rep(1, K))
+)
+
+# Choose which parameters to save
+model_parameters <- c("p", "tau", "f")
+
+
+
+# Run the model
+model_run <- jags(
+  data = model_data,
+  parameters.to.save = model_parameters,
+  model.file = textConnection(model_code),
+  n.chains = 4, # Number of different starting positions
+  n.iter = 10000, # Number of iterations
+  n.burnin = 2000, # Number of iterations to remove at start
+  n.thin = 5
+) # Amount of thinning)
+
+
+
+```
+
+
+
+Print the output
+```{r}
+print(model_run)
+```
+
+
+## FFVB definitions for this model
+
+
+
+$$\pi(y_{i} | p, \tau) = \frac{1}{\sqrt{(2\pi)}} (\sum_{k=1}^Kp_k^2\sigma_{k}^2 + \tau^{-1})^{\frac{n}{2}} \exp\left(-\frac{(\sum_{k=1}^Kp_k^2\sigma_{k}^2 + \tau^{-1})}{2} \sum_{i=1}^n\left(y_{i} - \sum_{k=1}^Kp_k\mu_{k}\right)^2\right)$$
+
+$$q(f) = \frac{1}{(2\pi)^\frac{n}{2}}\frac{1}{\mid(\Sigma_f)\mid^{\frac{1}{2}}} \exp\left(-\frac{1}{2}(f-\mu_f)^T\Sigma_f^{-1}(f-\mu_f)\right) $$
+$$q(\tau) = \frac{d^{c}}{\Gamma(c)} \tau_j^{c-1} \exp(-d\tau_j)$$
+
+
+$$h(\theta) = \log(\pi(f)\pi(\tau)\pi(y|f, \tau))$$
+
+$\log{q_\lambda}(\theta) = \log(q(f)q(\tau))$
+
+
+
+## FFVB code for this model
+```{r}
+# This code runs simple SIMM with just the generic functions
+
+# Source in all the generic functions
+source("FF_VB_generic_functions_correct.R")
+
+# Set up data and priors --------------------------------------------------
+
+rMVNormC <- function(n, mu, U){
+  p <- length(mu)
+  Z <- matrix(rnorm(p*n), p, n)
+  # U <- chol(Omega) # By default R's chol fxn returns upper cholesky factor
+  X <- backsolve(U, Z) # more efficient and stable than actually inverting
+  X <- sweep(X, 1, mu, FUN=`+`)
+  return(X)
+}
+
+
+# Hyper-parameters - vague priors
+S<-100
+fmean_0 <-c(rep(0, K))
+fsd_0<-c(rep(1,K))
+
+# Functions for this model ------------------------------------------------
+
+# Simulate from theta - always MVN in this example
+sim_theta <- function(S, lambda) {
+  
+  # For K parameters you will have
+  # lambda is of length K+K*(K+1)/2 +n_isotopes*2
+  # mean <- lambda[1:K]
+  # chol_prec is made up of lambda[(K + 1):(K+(K*(K+1))/2)]
+  #Tau is made up of lambda[((K+(K*(K+1))/2)+1):((K+(K*(K+1))/2)+n_isotopes*2)]
+  # (f) ~ MVN(lambda[1:K], solve(crossprod(chol_prec)))
+  
+  mean <- lambda[1:K]
+  # K*(K-1) precision terms
+  chol_prec <- matrix(0, nrow = K, ncol = K)
+  chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K+(K*(K+1))/2)]
+  
+  # This is a placeholder for more advanced code using chol_prec directly
+  theta <- cbind(t(rMVNormC(S, mu = mean, U = chol_prec)),
+           matrix(rgamma(S*n_isotopes, 
+                 shape = lambda[((K+(K*(K+1))/2)+1):(((K+(K*(K+1))/2))+n_isotopes)], 
+                 rate = lambda[(((K+(K*(K+1))/2))+n_isotopes+1):(((K+(K*(K+1))/2))+n_isotopes*2)]), 
+                 nrow = S, 
+                 ncol = n_isotopes, 
+                 byrow = TRUE))      
+                 
+  
+}
+# K <- 3; lambda <- c(rnorm(K+K*(K+1)/2), rgamma(n_isotopes*2, 1,1))
+# theta <- sim_theta(50, lambda)
+
+#Theta is f and tau
+
+
+# Log of likelihood added to prior
+h <- function(theta) {
+  p <- exp(theta[1:K])/(sum((exp(theta[1:K]))))
+        return(sum(dnorm(y[,1], 
+            mean = sum(p * mu_kj[,1]), 
+            sd = sqrt(1 / theta[K+1]), 
+            log = TRUE)) +
+          sum(dnorm(y[,2], 
+            mean = sum(p *mu_kj[,2]), 
+            sd = sqrt(1 / theta[K+2]),
+            log = TRUE)) +
+    sum(dnorm(theta[1:K], fmean_0, fsd_0, log = TRUE)) + 
+    sum(dgamma(theta[(K+1):(K+2)], shape = c_0, rate = d_0, log = TRUE)))
+}
+# h(theta[1,])
+
+log_q <- function(lambda, theta) {
+  mean <- lambda[1:K]
+  # K*(K-1) precision terms
+  chol_prec <- matrix(0, nrow = K, ncol = K)
+  chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K+(K*(K+1))/2)]
+  # chol_prec[1,3] <- 0
+  
+  # This is a placeholder for more advanced code using chol_prec directly
+  prec <- crossprod(chol_prec)
+  # dmvnorm(theta, mean = mean, sigma = solve(prec), log = TRUE)
+  p1 <- matrix(theta[1:K] - mean, ncol = 1) #%*%chol_prec
+  log_det <- unlist(determinant(prec, logarithm = TRUE))['modulus']
+  return(-0.5*K*log(2*pi)-0.5*log_det - 0.5*t(p1)%*%prec%*%(p1) 
+  + sum(dgamma(theta[(K+1):(K+2)],
+               shape = lambda[((K+(K*(K+1))/2)+1):(((K+(K*(K+1))/2))+n_isotopes)],
+               rate = lambda[(((K+(K*(K+1))/2))+n_isotopes+1):(((K+(K*(K+1))/2))+n_isotopes*2)],
+               log = TRUE)))
+}
+# log_q(lambda, theta[1,])
+
+#I've added terms to the return part 
+#I think it was missing some of the log mvn pdf
+
+
+
+# Algorithm ---------------------------------------------------------------
+
+
+lambda <- run_VB(lambda = c(rep(0, K), rep(1,(((K*(K+1))/2)+n_isotopes*2)))) # Starting value of lambda
+
+
+
+
+
+```
+
+
+
+## Comparison Plots
+```{r}
+mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "blue50")
+mycol2 <- rgb(255, 0, 0, max = 255, alpha = 125)
+
+#Generate samples
+theta <- sim_theta(6400, lambda)
+
+f<-function(x){
+  exp(x)/sum(exp(x))
+  }
+
+p<-t(apply(theta[,1:K], 1, f))
+
+
+
+# Plot of F
+hist((model_run$BUGSoutput$sims.list$f[,1]), col = mycol2, breaks = 20, ylim = c(0, 1000), 
+     xlim = c(-10, 10))
+hist(theta[,1], col = mycol, alpha = 0.5, breaks = 40, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$f[,2]), col = mycol2, breaks = 20, xlim = c(-10, 10))
+hist(theta[,2], col = mycol, add = TRUE, alpha = 0.5, breaks = 40)
+
+# hist((model_run$BUGSoutput$sims.list$f[,3]), col = mycol2, breaks = 20, xlim = c(-10, 10))
+# hist(theta[,3], col = mycol, add = TRUE, alpha = 0.5, breaks = 80)
+
+
+
+
+# Plot of tau
+hist((model_run$BUGSoutput$sims.list$tau[,1]), col = mycol2, breaks = 80, xlim = c(0, 5), ylim = c(0, 600))
+hist((theta[,K+1]), add = TRUE, col = mycol, breaks = 80)
+
+hist((model_run$BUGSoutput$sims.list$tau[,2]), col = mycol2, breaks = 80, xlim = c(0, 5), ylim = c(0, 600))
+hist((theta[,K+2]), add = TRUE, col = mycol, breaks = 80)
+
+
+#Plot of p
+
+hist(model_run$BUGSoutput$sims.list$p[,1], col = mycol2, ylim = c(0, 1500), breaks = 80, xlim = c(0,1))
+hist(p[,1], col = mycol, add = TRUE, breaks = 20)
+
+hist(model_run$BUGSoutput$sims.list$p[,2], col = mycol2, breaks = 80, xlim = c(0,1))
+hist(p[,2], col = mycol, add = TRUE, breaks = 20 )
+
+# hist(model_run$BUGSoutput$sims.list$p[,3], breaks = 20, col = mycol2, ylim = c(0, 2500), xlim = c(0,1))
+# hist(p[,3], col = mycol, add = TRUE, breaks = 20)
+
+#Plot of mus 
+hist((model_run$BUGSoutput$sims.list$p%*%mu_kj)[,1], col = mycol2, breaks = 80, xlim = c(-1, 4), ylim = c(0, 1500))
+hist((p%*%mu_kj)[,1], col = mycol, add = TRUE, breaks = 20)
+
+hist((model_run$BUGSoutput$sims.list$p%*%mu_kj)[,2], col = mycol2, breaks = 80, ylim = c(0, 1500), xlim = c(-1, 4))
+hist((p%*%mu_kj)[,2], col = mycol, add = TRUE, breaks = 20)
+```
+
+#Isosopace plot
+```{r}
+ggplot() + geom_point(data = y, aes(x = d15N, y = d13C)) +geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
+```
+
+
+
+
+
+

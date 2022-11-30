@@ -1,0 +1,17 @@
+model{
+  # Likelihood
+  for (j in 1:J) {
+    for (i in 1:N) {
+      y[i,j] ~ dnorm(inprod(p, s_mean[,j]), tau[j])
+    }
+    
+  }
+  # Prior on sigma
+  for(j in 1:J) { tau[j] ~ dgamma(1,1) }
+  # CLR prior on p
+  p[1:K] <- expf/sum(expf)
+  for(k in 1:K) {
+    expf[k] <- exp(f[k])
+    f[k] ~ dnorm(mu_f_mean[k],1/pow(sigma_f_sd[k],2))
+  }
+}

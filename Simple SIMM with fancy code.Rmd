@@ -1,0 +1,324 @@
+---
+title: "FFVB Simplest SIMM"
+author: "Emma Govan"
+date: "2/22/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(tidyverse)
+library(R2jags)
+library(ggplot2)
+library(gtools)
+```
+
+## Introduction
+
+This file contains the maths and code for running a simple univariate normal unknown mean/variance model through a Fixed Form Variational Bayes (FFVB) algorithm. The text below introduces the model, outlines the algorithm, fits the model using MCMC (via JAGS) and then fits the FFVB algorithm. Finally the two approaches are compared using plots of the derived posterior distributions. 
+
+## Model
+
+We use the likelihood:
+
+$$y_{i} \sim N(\sum_{k=1}^Kp_k\mu_{k}, \tau^{-1})$$
+
+where $y$ is the data and $p$ and $\tau$ are the parameters to be estimated. 
+
+We use the following prior distributions for $p$ and $\tau$:
+
+$[p_1,...p_k] \sim Dirichlet(\alpha_1,... \alpha_k)$
+
+$\tau \sim Ga(c, d)$
+
+$$\pi(p) = \frac{1}{\beta(\alpha)}\prod_{k=1}^Kp_k^{\alpha_k-1}$$
+
+$$\pi(\tau) = \frac{d^c}{\Gamma(c)} \tau_j^{c-1} \exp(-d\tau_j)$$
+Here $\alpha_0, c$, and $d$ are all fixed.
+
+## Fixed Form Variational Inference
+
+The algorithm detailed below comes from Algorithm 4 [here](https://vbayeslab.github.io/VBLabDocs/tutorial/ffvb).
+
+If we define the joint set of parameters as $\theta = (\mu, \sigma^2)$ then we write the factorised variational posterior as:
+
+$$q_\lambda(\theta) = q(\mu)q(\sigma)$$
+
+where $\lambda = (\mu_\mu, \sigma^2_\mu, \alpha_{\sigma}, \beta_{\sigma})^T$ is the set of hyper-parameters associated with the variational posteriors:
+
+$$q(\mu) \equiv N(\mu_\mu, \sigma^2_\mu)$$
+
+$$q(\sigma^2) \equiv InvGa(\alpha_{\sigma}, \beta_{\sigma})$$
+
+We use parenthetical super-scripts to denote iterations. To start the algorithm, initial values are required for $\lambda^{(0)}$, the sample size $S$, the adaptive learning weights ($\beta_1, \beta_2$), the fixed learning rate $\epsilon_0$, the threshold $\tau$, the rolling window size $t_W$ and the maximum patience $P$. 
+
+Define $h$ to be the log of the joint distribution up to the constant of proportionality:
+
+$$h(\theta) = \log \left( p(y|\theta) p(\theta) \right)$$
+and $h_\lambda$ to be the log of the ratio between the joint and the VB posterior:
+
+$$h_\lambda(\theta) = \log \left( \frac{ p(y|\theta) p(\theta) }{ q_\lambda(\theta) } \right) = h(\theta) - \log q_\lambda(\theta) $$
+
+
+The initialisation stage proceeds with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(0)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$\widehat{\nabla_\lambda{LB}(\lambda^{(0)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ h_\lambda(\theta_s) \bigg\rvert_{\lambda = \lambda^{(0)}}$$
+where $\circ$ indicates elementwise multiplication
+3. Set $\bar{g}_0 := \nabla_\lambda{LB}(\lambda^{(0)})$, $\bar{\nu_0} := \bar{g_0}^2$, $\bar{g} = g_0$, $\bar{\nu} = \nu_0$
+4. Estimate the control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+
+across the samples generated in step 1
+5. Set $t=1$, patience = 0, and `stop = FALSE`
+
+Now the algorithm runs with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(t)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$g_t := \widehat{\nabla_\lambda{LB}(\lambda^{(t)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ(h_\lambda(\theta_s) - c) \bigg\rvert_{\lambda = \lambda^{(t)}}$$
+
+
+where $\circ$ indicates elementwise multiplication.
+3. Estimate the new control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+across the samples generated in step 1
+4. Compute: 
+\begin{eqnarray}
+v_t &=& g_t^2 \\
+\bar{g} &=& \beta_1\bar{g} + (1-\beta_1)g_t \\
+\bar{v} &=& \beta_2\bar{v} + (1-\beta_2)v_t \\
+\end{eqnarray}
+5. Update the learning rate:
+$l_t = min(\epsilon_0, \epsilon_0\frac{\tau}{t})$
+and the variational hyper-parameters:
+$$\lambda^{(t+1)} = \lambda^{(t)} + l_t\frac{\bar{g}}{\sqrt{\bar{v}}}$$
+
+6. Compute the lower bound estimate:
+$$\widehat{LB}(\lambda^{(t)}) := \frac{1}{S} \sum_{s=1}^S h_{\lambda^{(t)}}(\theta_s)$$
+7. If $t \ge t_W$ compute the moving average LB
+$$\overline{LB}_{t-t_W+1} := \frac{1}{t_W} \sum_{k=1}^{t_W} \widehat{LB}(\lambda^{(t-k + 1)})$$
+If $\overline{LB}_{t-t_W+1} \ge \max(\bar{LB})$ patience = 0, else patience = patience +1
+8. If patience $\ge$ P, `stop = TRUE`
+9. Set $t:=t+1$
+
+## Data and hyper-parameters
+
+The data set we use is defined as follows:
+```{r}
+consumer <- read.csv("geese_consumer.csv", header = TRUE, stringsAsFactors = FALSE)
+sources <- read.csv("geese_sources.csv", header = TRUE, stringsAsFactors = FALSE)[1:4, 1:8]
+y<-consumer[1:10,2]
+```
+
+The hyper-parameter values for the prior distributions:
+```{r}
+c_0 <- 1
+d_0 <- 1
+tau_0 <- rgamma(100, shape = c_0, rate = d_0)
+alpha_0 <- c(1, 1, 1, 1)
+n_isotopes <- 1
+mu_kj <- c(sources$Meand15N)
+```
+
+## JAGS code for comparison
+
+As a benchmark, we fit this model using JAGS with the following code:
+  
+```{r, message=FALSE, results = 'hide'}
+model_code <- "
+model {
+  for (i in 1:N) {
+    y[i] ~ dnorm(mu[i], tau)
+    mu[i] <- inprod(p, mu_s)
+    
+  }
+  p ~ ddirch(alpha)
+tau ~ dgamma(1,1)
+}
+"
+
+# Set up the data - these match the data objects in the jags code
+model_data <- list(
+  N = length(consumer[1:10,2]),
+  y = consumer[1:10,2],
+  mu_s = mu_kj,
+  alpha = c(1, 1, 1, 1)
+)
+
+# Choose which parameters to save
+model_parameters <- c("p", "mu", "tau")
+
+
+
+# Run the model
+model_run <- jags(
+  data = model_data,
+  parameters.to.save = model_parameters,
+  model.file = textConnection(model_code),
+  n.chains = 4, # Number of different starting positions
+  n.iter = 10000, # Number of iterations
+  n.burnin = 2000, # Number of iterations to remove at start
+  n.thin = 5
+) # Amount of thinning)
+
+
+
+```
+
+
+
+Print the output
+```{r}
+print(model_run)
+```
+
+
+## FFVB definitions for this model
+
+
+
+$$\pi(y_{i} | p, \tau) = \frac{1}{\sqrt{(2\pi)}} (\sum_{k=1}^Kp_k^2\sigma_{k}^2 + \tau^{-1})^{\frac{n}{2}} \exp\left(-\frac{(\sum_{k=1}^Kp_k^2\sigma_{k}^2 + \tau^{-1})}{2} \sum_{i=1}^n\left(y_{i} - \sum_{k=1}^Kp_k\mu_{k}\right)^2\right)$$
+
+
+
+
+$$h(\theta) = \log(\pi(p)\pi(\tau)\pi(y|p, \tau))$$
+
+$\log{q_\lambda}(\theta) = \log(q(p)q(\tau))$
+
+
+$$h(\theta) = -\log(\beta(\alpha_0)) + \sum_{k=1}^K\left((\alpha_0-1)(\log(p_k))\right) + c_0\log(d_0) - \log(\Gamma(c_0)) +
+(c_0-1)\log(\tau) - d_0\tau$$
+$$-\frac{1}{2}\log(2\pi) +\frac{n}{2}\log(\tau) - \frac{\tau}{2}\left(\sum_{i=1}^n\left(y_{i} - \sum_{k=1}^K(p_k\mu_{k})\right)^2\right)$$
+$$\log(q_\lambda(\theta)) = -\log(\beta(\alpha)) + \sum_{k=1}^K\left((\alpha-1)(\log(p_k))\right)$$
+
+Finally, the derivative of the variational approximation for each of the four parameters is given by:
+  
+
+wrt c
+$$\log(d) - \frac{\Gamma'(c)}{\Gamma(c)} + log(\tau_j)$$
+wrt d
+$$\frac{c}{d} - \tau_j$$
+
+wrt each alpha
+$$\log(p_1) - \frac{1}{\beta(\alpha)}*\beta(\alpha)\left(\Psi(\alpha_1)-\Psi(\sum_{k=1}^K(\alpha_k)\right)$$
+
+## FFVB code for this model
+```{r}
+# This code runs simple SIMM with just the generic functions
+
+# Source in all the generic functions
+source("FF_VB_generic_functions.R")
+
+# Set up data and priors --------------------------------------------------
+
+# Model I want to fit is:
+# y ~ N(\sum_{k=1}^Kp_k\mu_{k}, \tau^{-1})
+# mu ~ Dirichlet(alpha_1,...,alpha_k)
+# tau ~ Ga(c_0, d_0)
+#k = 4 in this example
+
+
+# Hyper-parameters - vague priors
+c_0 <- 5
+d_0 <- 5
+tau_0 <- rgamma(100, shape = c_0, rate = d_0)
+alpha_0 <- c(1, 1, 1, 1)
+n_isotopes <- 1
+mu_kj <- c(sources$Meand15N)
+S<-100
+
+
+# Functions for this model ------------------------------------------------
+
+sim_theta <- function(S, lambda) {
+  theta <- cbind(
+    rdirichlet(S, lambda[1:4]),
+    rgamma(S, shape = lambda[5], rate = lambda[6]) #normal dist - exp
+  )
+}
+#theta <- sim_theta(S, lambda)
+
+# Log of likelihood added to prior
+h <- function(theta) {
+  sum(dnorm(y, mean = sum(theta[1:4] * mu_kj), sd = sqrt(1/theta[5]), log = TRUE)) +
+    log(ddirichlet(theta[1:4], alpha_0)) + 
+    dgamma(theta[5], shape = c_0, rate = d_0, log = TRUE)
+}
+# h(theta[1,])
+
+log_q <- function(lambda, theta) {
+  log(ddirichlet(theta[1:4], lambda[1:4])) + 
+    dgamma(theta[5], shape = lambda[5], rate = lambda[6], log = TRUE)
+}
+# log_q(lambda, theta[1,])
+
+# Algorithm ---------------------------------------------------------------
+
+#set.seed(123)
+lambda <- run_VB(lambda = c(1, 1, 1, 1, 5, 5)) # Starting value of lambda
+
+# Output ------------------------------------------------------------------
+# 
+# mean_seq <- seq(min(y), max(y), length = 100)
+# qplot(mean_seq,
+#       dnorm(mean_seq, mean = lambda[1], sd = 1 / sqrt(lambda[2])),
+#       geom = "line"
+# ) + geom_vline(
+#   xintercept = mean(y),
+#   col = "red"
+# )
+# 
+# tau_seq <- seq(0, 3 / var(y), length = 100)
+# qplot(tau_seq,
+#       dgamma(tau_seq, shape = lambda[3], rate = lambda[4]),
+#       geom = "line"
+# ) +
+#   geom_vline(
+#     xintercept = 1/var(y),
+#     col = "red"
+#   )
+
+
+```
+
+
+
+## Comparison Plots
+```{r}
+mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "blue50")
+mycol2 <- rgb(255, 0, 0, max = 255, alpha = 125)
+
+
+
+# Generate mu sample
+allprob <- ((rdirichlet(6400, lambda[1:4])))
+
+# Plot JAGS vs VB
+hist((model_run$BUGSoutput$sims.list$p[,1]), col = mycol2, xlim = c(0, 1))
+hist(allprob[,1], col = mycol, add = TRUE, alpha = 0.5, breaks = 20)
+
+hist((model_run$BUGSoutput$sims.list$p[,2]), col = mycol2, xlim = c(0, 1))
+hist(allprob[,2], col = mycol, add = TRUE, alpha = 0.5, breaks = 20)
+
+hist((model_run$BUGSoutput$sims.list$p[,3]), col = mycol2, xlim = c(0, 1))
+hist(allprob[,3], col = mycol, add = TRUE, alpha = 0.5, breaks = 20)
+
+hist((model_run$BUGSoutput$sims.list$p[,4]), col = mycol2, xlim = c(0, 1))
+hist(allprob[,4], col = mycol, add = TRUE, alpha = 0.5, breaks = 10)
+
+
+hist(model_run$BUGSoutput$sims.list$mu[1000:7400], col = mycol2, xlim = c(8, 12))
+hist((allprob[, 1] * mu_kj[1] + allprob[, 2] * mu_kj[2] + allprob[, 3] * mu_kj[3] + allprob[, 4] * mu_kj[4]), col = mycol, breaks = 10, add = TRUE)
+
+# Generate tau sample
+sampletau <- rgamma(6400, shape = lambda[5],  rate = lambda[6])
+
+
+# Plot JAGS vs VB
+hist((model_run$BUGSoutput$sims.list$tau), col = mycol2, breaks = 10, xlim = c(0, 5))
+hist((sampletau), add = TRUE, col = mycol, breaks = 20)
+```

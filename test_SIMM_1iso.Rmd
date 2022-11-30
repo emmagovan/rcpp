@@ -1,0 +1,65 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Comapring output of SIMM_1iso.cpp and SIMM with CLR TEF conc dep.Rmd
+These should be the same
+1 isotope model, with TEF CLR conc dep etc.
+No cholesky decomp
+
+```{r}
+rm(list = ls())
+library(Rcpp)
+sourceCpp("Simm_1iso.cpp")
+```
+
+
+Geese data
+```{r}
+
+consumer <-read.csv("geese_consumer.csv", header = TRUE, stringsAsFactors = FALSE)
+sources<-read.csv("geese_sources.csv", header = TRUE, stringsAsFactors = FALSE)[1:4,]
+disc <- read.csv("geese_discrimination.csv", header = TRUE, stringsAsFactors = FALSE)
+y <- consumer[1:30, 2]
+```
+
+
+
+The hyper-parameter values for the prior distributions:
+```{r}
+c_0 <- 1
+d_0 <- 1
+K<- 4 # number of sources
+n_isotopes <- 1
+mu_kj <- c(sources$Meand15N[1:4]) #+ c(disc$Meand15N)
+sigma_kj <- c(sources$SDd15N[1:4]) #+c(disc$SDd15N)
+mu_c <- c(disc$Meand15N)
+sigma_c <- c(disc$SDd15N)
+q <- c(sources$Concd15N[1:4])
+# q<-c(rep(1, length(sources$Meand15N)))
+#sigma_c<-c(0,0,0,0)
+#sigma_kj<-c(0,0,0,0)
+#mu_c<-c(0,0,0,0)
+```
+
+test
+```{r}
+lambda = c(0,0,0,0, 1, 1, 1, 1, 1, 1)
+
+set.seed(123)
+sim_thetacpp(10, lambda, 4, 1)
+hcpp(4, 1, as.matrix(q), as.matrix(mu_kj), as.matrix(mu_c), 
+      as.matrix(sigma_c), as.matrix(sigma_kj), as.matrix(theta[1,]), as.matrix(y))
+
+log_q_cpp(theta[1,], lambda, 4, 1)
+
+res<-run_VB_cpp(lambda, 4, 1,as.matrix(q), as.matrix(mu_kj), as.matrix(mu_c), 
+      as.matrix(sigma_c), as.matrix(sigma_kj), as.matrix(y))
+```
+
+
+
+
+
+
+

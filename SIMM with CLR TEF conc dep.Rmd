@@ -1,0 +1,382 @@
+---
+title: "SIMM with CLR TEF conc dep"
+author: "Emma Govan"
+date: "5/12/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(tidyverse)
+library(R2jags)
+library(ggplot2)
+library(gtools)
+library(LaplacesDemon)
+
+set.seed(123)
+```
+
+## Introduction
+
+This file contains the maths and code for running a simple stable isotope mixing model model through a Fixed Form Variational Bayes (FFVB) algorithm. The text below introduces the model, outlines the algorithm, fits the model using MCMC (via JAGS) and then fits the FFVB algorithm. Finally the two approaches are compared using plots of the derived posterior distributions. 
+
+## Model
+
+We use the likelihood:
+
+$$y_{i} \sim N(\frac{\sum_{k=1}^Kp_kq_k(\mu_c+\mu_{k})}{\sum_{k=1}^Kp_kq_k},\frac{\sum_{k=1}^Kp_k^2q_{k}^2(\sigma^2_c+\sigma^2_{k})}{\sum_{k=1}^Kp_k^2q_{k}^2} + \tau^{-1})$$
+
+
+where $y$ is the data and $p$ and $\tau$ are the parameters to be estimated. 
+
+We use the following prior distributions for $p$ and $\tau$:
+
+$$p = \frac{\exp{f}}{\sum\exp{f}}$$
+
+$\tau \sim Ga(c, d)$
+
+$$\pi(f) \sim mvn(\mu_f, \Sigma_f)$$
+
+$$\pi(\tau) = \frac{d^c}{\Gamma(c)} \tau_j^{c-1} \exp(-d\tau_j)$$
+Here $\mu_f, \Sigma_f, c$, and $d$ are all fixed.
+
+## Fixed Form Variational Inference
+
+The algorithm detailed below comes from Algorithm 4 [here](https://vbayeslab.github.io/VBLabDocs/tutorial/ffvb).
+
+If we define the joint set of parameters as $\theta = (f, \tau)$ then we write the factorised variational posterior as:
+
+$$q_\lambda(\theta) = q(f)q(\tau)$$
+
+where $\lambda = (\mu_f, \Sigma_f, c,d)^T$ is the set of hyper-parameters associated with the variational posteriors:
+
+$$q(f) \equiv mvn(\mu_f, \Sigma_f)$$
+
+$$q(\tau) \equiv Ga(c_{\sigma}, d_{\sigma})$$
+
+We use parenthetical super-scripts to denote iterations. To start the algorithm, initial values are required for $\lambda^{(0)}$, the sample size $S$, the adaptive learning weights ($\beta_1, \beta_2$), the fixed learning rate $\epsilon_0$, the threshold $\tau$, the rolling window size $t_W$ and the maximum patience $P$. 
+
+Define $h$ to be the log of the joint distribution up to the constant of proportionality:
+
+$$h(\theta) = \log \left( p(y|\theta) p(\theta) \right)$$
+and $h_\lambda$ to be the log of the ratio between the joint and the VB posterior:
+
+$$h_\lambda(\theta) = \log \left( \frac{ p(y|\theta) p(\theta) }{ q_\lambda(\theta) } \right) = h(\theta) - \log q_\lambda(\theta) $$
+
+
+The initialisation stage proceeds with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(0)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$\widehat{\nabla_\lambda{LB}(\lambda^{(0)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ h_\lambda(\theta_s) \bigg\rvert_{\lambda = \lambda^{(0)}}$$
+where $\circ$ indicates elementwise multiplication
+3. Set $\bar{g}_0 := \nabla_\lambda{LB}(\lambda^{(0)})$, $\bar{\nu_0} := \bar{g_0}^2$, $\bar{g} = g_0$, $\bar{\nu} = \nu_0$
+4. Estimate the control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+
+across the samples generated in step 1
+5. Set $t=1$, patience = 0, and `stop = FALSE`
+
+Now the algorithm runs with:
+
+1. Generate samples from $\theta_s \sim q_{\lambda^{(t)}(\theta)}$ for $s=1,...S$
+2. Compute the unbiased estimate of the lower bound gradient:
+$$g_t := \widehat{\nabla_\lambda{LB}(\lambda^{(t)})} = \frac{1}{S}\sum_{s=1}^S\nabla_\lambda[\log(q_\lambda(\theta_s))] \circ(h_\lambda(\theta_s) - c) \bigg\rvert_{\lambda = \lambda^{(t)}}$$
+
+
+where $\circ$ indicates elementwise multiplication.
+3. Estimate the new control variate $c_i$ for the $i$th element of $\lambda$ as:
+$$c_i = \frac{Cov \left(\nabla_{\lambda_i}[\log(q_\lambda(\theta))]h_\lambda(\theta),\nabla_{\lambda_i}[\log(q_\lambda(\theta))]\right)}{ Var(\nabla_{\lambda_i}[\log(q_\lambda(\theta))])}$$
+across the samples generated in step 1
+4. Compute: 
+\begin{eqnarray}
+v_t &=& g_t^2 \\
+\bar{g} &=& \beta_1\bar{g} + (1-\beta_1)g_t \\
+\bar{v} &=& \beta_2\bar{v} + (1-\beta_2)v_t \\
+\end{eqnarray}
+5. Update the learning rate:
+$l_t = min(\epsilon_0, \epsilon_0\frac{\tau}{t})$
+and the variational hyper-parameters:
+$$\lambda^{(t+1)} = \lambda^{(t)} + l_t\frac{\bar{g}}{\sqrt{\bar{v}}}$$
+
+6. Compute the lower bound estimate:
+$$\widehat{LB}(\lambda^{(t)}) := \frac{1}{S} \sum_{s=1}^S h_{\lambda^{(t)}}(\theta_s)$$
+7. If $t \ge t_W$ compute the moving average LB
+$$\overline{LB}_{t-t_W+1} := \frac{1}{t_W} \sum_{k=1}^{t_W} \widehat{LB}(\lambda^{(t-k + 1)})$$
+If $\overline{LB}_{t-t_W+1} \ge \max(\bar{LB})$ patience = 0, else patience = patience +1
+8. If patience $\ge$ P, `stop = TRUE`
+9. Set $t:=t+1$
+
+## Data and hyper-parameters
+
+The data set we use is defined as follows:
+```{r}
+# consumer <- read.csv("geese_consumer.csv", header = TRUE, stringsAsFactors = FALSE)
+# sources <- read.csv("geese_sources.csv", header = TRUE, stringsAsFactors = FALSE)[1:4, 1:8]
+# disc <- read.csv("geese_discrimination.csv", header = TRUE, stringsAsFactors = FALSE)
+
+#wolves data
+
+consumer <-read.csv("geese_consumer.csv", header = TRUE, stringsAsFactors = FALSE)
+sources<-read.csv("geese_sources.csv", header = TRUE, stringsAsFactors = FALSE)[1:4,]
+disc <- read.csv("geese_discrimination.csv", header = TRUE, stringsAsFactors = FALSE)
+y <- consumer[1:30, 2]
+```
+
+The hyper-parameter values for the prior distributions:
+```{r}
+c_0 <- 1
+d_0 <- 1
+K<- 4 # number of sources
+n_isotopes <- 1
+mu_kj <- c(sources$Meand15N[1:4]) #+ c(disc$Meand15N)
+sigma_kj <- c(sources$SDd15N[1:4]) #+c(disc$SDd15N)
+mu_c <- c(disc$Meand15N)
+sigma_c <- c(disc$SDd15N)
+q <- c(sources$Concd15N[1:4])
+# q<-c(rep(1, length(sources$Meand15N)))
+#sigma_c<-c(0,0,0,0)
+#sigma_kj<-c(0,0,0,0)
+#mu_c<-c(0,0,0,0)
+```
+
+## JAGS code for comparison
+
+As a benchmark, we fit this model using JAGS with the following code:
+  
+```{r, message=FALSE, results = 'hide'}
+model_code <- "
+model{
+  # Likelihood
+ 
+    for (i in 1:N) {
+      y[i] ~ dnorm(inprod(p*q, (s_mean+c_mean)) / inprod(p,q), 1/var_y)
+    }
+    var_y <- inprod(pow(p*q,2),(pow(s_sd,2)+pow(c_sd,2)))/pow(inprod(p,q),2)
++ 1/tau
+  
+  # Prior on tau
+  tau ~ dgamma(1,1) 
+  # CLR prior on p
+  p[1:K] <- expf/sum(expf)
+  for(k in 1:K) {
+    expf[k] <- exp(f[k])
+    f[k] ~ dnorm(mu_f_mean[k],1/pow(sigma_f_sd[k],2))
+  }
+}
+"
+
+# Set up the data - these match the data objects in the jags code
+model_data <- list(
+  N = length(y),
+  K = K,
+  y = y,
+  s_mean = mu_kj,
+  s_sd = sigma_kj,
+  q = q,
+  c_mean = mu_c,
+  c_sd = sigma_c,
+  mu_f_mean = c(rep(0, K)),
+  sigma_f_sd = c(rep(1, K))
+)
+
+# Choose which parameters to save
+model_parameters <- c("p", "var_y", "f", "tau")
+
+
+
+# Run the model
+model_run <- jags(
+  data = model_data,
+  parameters.to.save = model_parameters,
+  model.file = textConnection(model_code),
+  n.chains = 4, # Number of different starting positions
+  n.iter = 10000, # Number of iterations
+  n.burnin = 2000, # Number of iterations to remove at start
+  n.thin = 5
+) # Amount of thinning)
+```
+
+
+
+#print the output
+```{r}
+print(model_run)
+```
+
+
+
+## FFVB definitions for this model
+
+
+
+
+
+## FFVB code for this model
+```{r}
+# This code runs simple SIMM with just the generic functions
+
+# Source in all the generic functions
+source("FF_VB_generic_functions_correct.R")
+
+# Set up data and priors --------------------------------------------------
+
+# Hyper-parameters - vague priors
+c_0 <- 1
+d_0 <- 1
+S <- 100
+fmean_0 <- c(rep(0, K))
+fsd_0 <- diag(K)
+
+# Functions for this model ------------------------------------------------
+
+sim_theta <- function(S, lambda) {
+  theta <- cbind(
+    # rmvn(S, lambda[1:4], matrix(lambda[5:20], nrow = 4)),
+    rmvn(S, lambda[1:K], diag(exp(lambda[(K+1):(2*K)]))),
+    rgamma(S, shape = lambda[(2*K+1)], rate = lambda[(2*K+2)]) # normal dist - exp
+  )
+}
+# theta <- sim_theta(S, lambda)
+
+
+# Log of likelihood added to prior
+h <- function(theta) {
+  p<-exp(theta[1:K]) / sum(exp(theta[1:K]))
+  sum(dnorm(y, mean = sum(p * q * (mu_kj + mu_c)) / (sum(p * q)), 
+                          sd = sqrt(sum((p^2) * (q^2) * (sigma_c^2 + sigma_kj^2)) / (sum((p^2)*(q^2))) + (1 / theta[(K+1)])), log = TRUE)) +
+    dmvn(theta[1:K], fmean_0, fsd_0, log = TRUE) +
+    dgamma(theta[(K+1)], shape = c_0, rate = d_0, log = TRUE)
+}
+# h(theta[1,])
+
+
+log_q <- function(lambda, theta) {
+  dmvn(theta[1:K], lambda[1:K], diag(exp(lambda[(K+1):(2*K)])), log = TRUE) +
+    dgamma(theta[(K+1)], shape = lambda[(2*K+1)], rate = lambda[(2*K+2)], log = TRUE)
+}
+# log_q(lambda, theta[1,])
+
+# Algorithm ---------------------------------------------------------------
+
+# set.seed(123)
+lambda <- run_VB(lambda = c(0,0,0,0, 1, 1, 1, 1, 1, 1)) # Starting value of lambda
+```
+
+
+
+## Comparison Plots
+```{r}
+# Set some translucent colours
+mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "blue50")
+mycol2 <- rgb(255, 0, 0, max = 255, alpha = 125)
+mycol3 <- rgb(0, 255, 0, max = 255, alpha = 125)
+
+# Generate theta
+theta <- sim_theta(7600, lambda)
+
+# Calculate p from f
+fcalc <- function(x) {
+  exp(x) / sum(exp(x))
+}
+
+prop <- t(apply(as.matrix(theta[, 1:K]), 1, fcalc))
+
+
+
+# Plot JAGS vs VB
+# plot of p
+hist((model_run$BUGSoutput$sims.list$p[, 1]), col = mycol2, ylim = c(0, 1500), breaks = 20)
+hist(prop[, 1], col = mycol, add = TRUE, alpha = 0.5, breaks = 20)
+
+hist((model_run$BUGSoutput$sims.list$p[, 2]), col = mycol2, xlim = c(0, 1), ylim = c(0, 1500), breaks = 20)
+hist(prop[, 2], col = mycol, add = TRUE, alpha = 0.5, breaks = 20)
+
+hist((model_run$BUGSoutput$sims.list$p[, 3]), col = mycol2, xlim = c(0, 1), ylim = c(0, 5000), breaks = 20)
+hist(prop[, 3], col = mycol, add = TRUE, alpha = 0.5, breaks = 10)
+
+hist((model_run$BUGSoutput$sims.list$p[, 4]), col = mycol2, xlim = c(0, 1), ylim = c(0, 1500), breaks = 20)
+hist(prop[, 4], col = mycol, add = TRUE, alpha = 0.5, breaks = 20)
+
+# hist((model_run$BUGSoutput$sims.list$p[, 5]), col = mycol2, xlim = c(0, 1), ylim = c(0, 1500), breaks = 20)
+# hist(prop[, 5], col = mycol, add = TRUE, alpha = 0.5, breaks = 40)
+
+
+# Generate sigma and mu samples
+sigmasqsample <- c(rep(NA, 3600))
+musample <- c(rep(NA, 3600))
+mujags <- c(rep(NA, 3600))
+for (i in 1:3600) {
+  sigmasqsample[i] <- sum(prop[i, ]^2 * q^2 * (sigma_kj^2 + sigma_c^2)) / sum(prop[i, ]^2 * q^2)
+  musample[i] <- (sum(prop[i, ] * q * (mu_kj + mu_c))) / (sum(prop[i, ] * q))
+  mujags[i] <- (sum(((model_run$BUGSoutput$sims.list$p[i, ] * q)) * (mu_kj + mu_c))) / (sum((model_run$BUGSoutput$sims.list$p[i, ] * q)))
+}
+
+# plot of mu
+
+hist(mujags, col = mycol2, breaks = 20, xlim = c(0,20))
+hist(musample, col = mycol, add = TRUE, breaks = 40)
+
+
+# Plot of vars
+
+hist((model_run$BUGSoutput$sims.list$tau), col = mycol2, breaks = 40)
+hist((theta[, 5]), col = mycol, breaks = 80, add = TRUE)
+
+# plot of f's
+
+hist(model_run$BUGSoutput$sims.list$f[, 1], col = mycol2, breaks = 80, ylim = c(0, 1000))
+hist(theta[, 1], add = TRUE, col = mycol, breaks = 80)
+
+hist(model_run$BUGSoutput$sims.list$f[, 2], col = mycol2, breaks = 80, ylim = c(0, 1000))
+hist(theta[, 2], add = TRUE, col = mycol, breaks = 40)
+
+hist(model_run$BUGSoutput$sims.list$f[, 3], col = mycol2, breaks = 80, ylim = c(0, 1000))
+hist(theta[, 3], add = TRUE, col = mycol, breaks = 40)
+
+hist(model_run$BUGSoutput$sims.list$f[, 4], col = mycol2, breaks = 80, ylim = c(0, 1000))
+hist(theta[, 4], add = TRUE, col = mycol, breaks = 80)
+
+# hist(model_run$BUGSoutput$sims.list$f[, 5], col = mycol2, breaks = 80, ylim = c(0, 1000))
+# hist(theta[, 5], add = TRUE, col = mycol, breaks = 20)
+```
+
+
+These should match simmr exactly
+```{r}
+library(simmr)
+
+simmr_in <- simmr_load(
+  mixtures = as.matrix(y),
+  source_names = as.character(sources$Sources),
+  source_means = as.matrix(sources$Meand15N),
+  source_sds = as.matrix(sources$SDd15N),
+  correction_means = as.matrix(mu_c),
+  correction_sds = as.matrix(sigma_c),
+  concentration_means = as.matrix(q)
+)
+
+
+simmr_out <- simmr_mcmc(simmr_in)
+
+plot(simmr_out, type = "histogram")
+
+plot(simmr_in)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
