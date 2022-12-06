@@ -1,4 +1,4 @@
-simmr_ffvb<-function(simmr_in,
+simmr_ffvb_speed_up<-function(simmr_in,
                      prior_control = list(
                        means = rep(
                          0,
@@ -59,18 +59,18 @@ simmr_ffvb<-function(simmr_in,
     y = curr_mix
     
     #### make sure this has right file name
-    Rcpp::sourceCpp("run_VB.cpp")
-
+    Rcpp::sourceCpp("run_VB_speed_up.cpp")
+    
     lambdastart = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_tracers * 2)))
-   
+    
     lambdares[,i]<-run_VB_cpp(lambdastart, K, n_tracers, concentration_means, 
-                          source_means, correction_means, correction_sds,
-                    source_sds, y)
+                              source_means, correction_means, correction_sds,
+                              source_sds, y)
     
     thetares[(1+3600*(i-1)):(3600*i),] = sim_thetacpp(n_output, lambdares[,i], K, n_tracers)
   }
   
-
+  
   mylist<-list(lambda = lambdares,
                n_sources = simmr_in$n_sources, 
                n_tracers = simmr_in$n_tracers,

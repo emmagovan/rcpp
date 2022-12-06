@@ -1,6 +1,8 @@
+rm(list = ls())
 library(R2jags)
 library(tidyverse)
 library(Rcpp)
+library(mvnfast)
 
 #use simmr data -------------------------------------------------------
 
@@ -112,8 +114,8 @@ simmr_in = simmr_load(mixtures=mix,
 
 library(microbenchmark)
 microbenchmark(simmr_out = simmr_mcmc(simmr_in),
-VB_all= simmr_ffvb(simmr_in), times = 10L
-)
+                rcpp = run_VB_cpp(lambdastart, K, n_isotopes, conc, s_means, c_means, c_sds,
+                          s_sds, mix), times = 10L)
 
 
 # Run VB ------------------------------------------------------------------
@@ -173,27 +175,57 @@ h <- function(theta) {
 }
 # h(theta[1,])
 
+# log_q <- function(lambda, theta) {
+#   mean <- lambda[1:K]
+#   # K*(K-1) precision terms
+#   chol_prec <- matrix(0, nrow = K, ncol = K)
+#   chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+#   # chol_prec[1,3] <- 0
+#   
+#   # This is a placeholder for more advanced code using chol_prec directly
+#   # prec <- crossprod(chol_prec)
+#   p1 <- matrix(theta[1:K] - mean, nrow = 1) %*% t(chol_prec)
+#   # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
+#   return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec))) - 0.5 * p1%*%t(p1)
+#          + sum(dgamma(theta[(K + 1):(K + 2)],
+#                       shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes)],
+#                       rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
+#                       log = TRUE
+#          )))
+# }
+
 log_q <- function(lambda, theta) {
   mean <- lambda[1:K]
   # K*(K-1) precision terms
   chol_prec <- matrix(0, nrow = K, ncol = K)
   chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
-  # chol_prec[1,3] <- 0
   
-  # This is a placeholder for more advanced code using chol_prec directly
-  # prec <- crossprod(chol_prec)
-  p1 <- matrix(theta[1:K] - mean, nrow = 1) %*% t(chol_prec)
-  # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
-  return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec))) - 0.5 * p1%*%t(p1)
-         + sum(dgamma(theta[(K + 1):(K + 2)],
-                      shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes)],
-                      rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
-                      log = TRUE
-         )))
+  # This version uses chol_prec directly
+  # p1 <- matrix(theta[1:K] - mean, nrow = 1) %*% t(chol_prec)
+  # # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
+  # return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec))) - 0.5 * p1%*%t(p1)
+  #        + sum(dgamma(theta[(K + 1)],
+  #                     shape = lambda[((K + (K * (K + 1)) / 2) + 1)],
+  #                     rate = lambda[(((K + (K * (K + 1)) / 2)) + 2)],
+  #                     log = TRUE
+  #        )))
+  
+  # Alternatively use the full dmvn function
+  prec <- crossprod(chol_prec)
+  return(dmvn(theta[1:K], mean, solve(prec), log = TRUE) + 
+           + sum(dgamma(theta[(K + 1):(K + 2)],
+                        shape = lambda[((K + (K * (K + 1)) / 2) + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes)],
+                        rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
+                        log = TRUE
+           )))
 }
 
 # Now run it!
 lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
+
+microbenchmark(r = run_VB(c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))),
+               rcpp = run_VB_cpp(lambdastart, K, n_isotopes, conc, s_means, c_means, c_sds,
+                                 s_sds, mix), times = 5L)
 
 # Perform comparisons -----------------------------------------------------
 

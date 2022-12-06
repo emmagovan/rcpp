@@ -9,36 +9,26 @@
 # Set up
 rm(list = ls())
 library(R2jags)
+library(tidyverse)
+library(mvnfast)
 
-# Simulate some data ------------------------------------------------------
-
-# # Simulate some data
-# set.seed(123)
-# N <- 30
-# K <- 3
-# n_isotopes = 2
-# mu_s <- c(rep(0, K))
-# sigma_s <- diag(K)
-# s <- rmvn(K, mu_s, sigma_s)
-# sig_y <- diag(K)
-# p <- c(0.8, 0.15, 0.05)
-# mix <- matrix(rmvn(N*n_isotopes, sum(p %*% s), sum(p^2 %*%s^2) +1), ncol = 2)
-# 
 
 # Or use simmr data -------------------------------------------------------
+# cons <- read.csv("wolves_consumer.csv")[c(1:21),]
+# disc <- read.csv("wolves_discrimination.csv")
+# sources <- read.csv("wolves_sources.csv")[c(1,4,7),]
 
-mix <- matrix(c(
-  -10.13, -10.72, -11.39, -11.18, -10.81, -10.7, -10.54,
-  -10.48, -9.93, -9.37, 11.59, 11.01, 10.59, 10.97, 11.52, 11.89,
-  11.73, 10.89, 11.05, 12.3
-), ncol = 2, nrow = 10)
-colnames(mix) <- c("d13C", "d15N")
-s_names <- c("Zostera", "Grass", "U.lactuca", "Enteromorpha")
-s_means <- matrix(c(-14, -15.1, -11.03, -14.44, 3.06, 7.05, 13.72, 5.96), ncol = 2, nrow = 4)
-s_sds <- matrix(c(0.48, 0.38, 0.48, 0.43, 0.46, 0.39, 0.42, 0.48), ncol = 2, nrow = 4)
-c_means <- matrix(c(2.63, 1.59, 3.41, 3.04, 3.28, 2.34, 2.14, 2.36), ncol = 2, nrow = 4)
-c_sds <- matrix(c(0.41, 0.44, 0.34, 0.46, 0.46, 0.48, 0.46, 0.66), ncol = 2, nrow = 4)
-conc <- matrix(c(0.02, 0.1, 0.12, 0.04, 0.02, 0.1, 0.09, 0.05), ncol = 2, nrow = 4)
+cons <- read.csv("mantis_consumer.csv")
+disc <- read.csv("mantis_discrimination.csv")
+sources <- read.csv("mantis_source.csv")[c(1,3,5,7,9,11),]
+
+mix <- cons[,c(1:2)]
+s_names <- sources[,1]
+s_means <- sources[,c(3,5)]
+s_sds <- sources[,c(4,6)]
+c_means <- disc[,c(2,4)]
+c_sds <- disc[,c(3,5)]
+conc <- sources[,c(7:8)]
 
 y <- as.data.frame(mix)
 n <- nrow(y)
@@ -147,7 +137,8 @@ h <- function(theta) {
 # h(theta[1,])
 
 log_q <- function(lambda, theta) {
-  mean <- lambda[1:K]
+  
+   mean <- lambda[1:K]
   # K*(K-1) precision terms
   chol_prec <- matrix(0, nrow = K, ncol = K)
   chol_prec[upper.tri(chol_prec, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
@@ -170,11 +161,19 @@ log_q <- function(lambda, theta) {
                         rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
                         log = TRUE
            )))
-}
+} 
+
+#log_q(lambda, theta[1,])
 
 # Now run it!
 lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
 
+#----------------------------
+#ffvb rcpp
+lambdastart = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))
+Rcpp::sourceCpp("run_VB.cpp")
+lambda_out_rcpp <- run_VB_cpp(as.vector(lambdastart), as.integer(K), as.integer(n_isotopes),
+                              as.matrix(cons), as.matrix(s_means), as.matrix(c_means), as.matrix(c_sds), as.matrix(s_sds), as.matrix(mix))
 # Perform comparisons -----------------------------------------------------
 
 # Get all the parameters from JAGS and VB
@@ -201,7 +200,7 @@ for (i in 1:K) {
     p = c(p_JAGS[,i], p_VB[,i]),
     Fit = c(rep('JAGS', n), c(rep("VB", n)))
   ) %>% ggplot(aes(x = p, fill = Fit)) + geom_density(alpha = 0.5) +
-    ggtitle(paste("p: Iso",i)))
+    ggtitle(paste("p: source",i)))
 }
 
 # Try tau

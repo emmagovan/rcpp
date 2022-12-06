@@ -1,32 +1,9 @@
-# Script to run a fixed form VB model on some stable isotope data with 2 isotopes
-# Note that this doesn't include much maths as it's explained elsewhere
-# The rough structure of this file is:
-# 1. Simulate some data or use a real data set
-# 2. Run JAGS on the data
-# 3. Run FFVB on the data
-# 4. Perform some analysis comparing the results
-
-# Set up
 rm(list = ls())
 library(R2jags)
+library(tidyverse)
+library(simmr)
 
-# Simulate some data ------------------------------------------------------
-
-# # Simulate some data
-# set.seed(123)
-# N <- 30
-# K <- 3
-# n_isotopes = 2
-# mu_s <- c(rep(0, K))
-# sigma_s <- diag(K)
-# s <- rmvn(K, mu_s, sigma_s)
-# sig_y <- diag(K)
-# p <- c(0.8, 0.15, 0.05)
-# mix <- matrix(rmvn(N*n_isotopes, sum(p %*% s), sum(p^2 %*%s^2) +1), ncol = 2)
-# 
-
-# Or use simmr data -------------------------------------------------------
-
+#test simmr_ffvb_rcpp.R fn 
 mix <- matrix(c(
   -10.13, -10.72, -11.39, -11.18, -10.81, -10.7, -10.54,
   -10.48, -9.93, -9.37, 11.59, 11.01, 10.59, 10.97, 11.52, 11.89,
@@ -39,6 +16,20 @@ s_sds <- matrix(c(0.48, 0.38, 0.48, 0.43, 0.46, 0.39, 0.42, 0.48), ncol = 2, nro
 c_means <- matrix(c(2.63, 1.59, 3.41, 3.04, 3.28, 2.34, 2.14, 2.36), ncol = 2, nrow = 4)
 c_sds <- matrix(c(0.41, 0.44, 0.34, 0.46, 0.46, 0.48, 0.46, 0.66), ncol = 2, nrow = 4)
 conc <- matrix(c(0.02, 0.1, 0.12, 0.04, 0.02, 0.1, 0.09, 0.05), ncol = 2, nrow = 4)
+
+source("simmr_ffvb_rcpp.R")
+
+simmr_in = simmr_load(mixtures = mix,
+                      source_names = s_names,
+                      source_means = s_means,
+                      source_sds = s_sds,
+                      correction_means = c_means,
+                      correction_sds = c_sds,
+                      concentration_means = conc)
+
+simmr_out1 = simmr_ffvb(simmr_in)
+
+#----------------------
 
 y <- as.data.frame(mix)
 n <- nrow(y)
@@ -88,7 +79,7 @@ JAGS_run <- jags(
 # plot(JAGS_run)
 # print(JAGS_run)
 
-
+#---------------
 # Run VB ------------------------------------------------------------------
 
 # Source in all the generic functions
@@ -180,8 +171,18 @@ lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isoto
 # Get all the parameters from JAGS and VB
 f_JAGS <- JAGS_run$BUGSoutput$sims.list$f
 n <- nrow(f_JAGS)
-all_vb <- sim_theta(n, lambda_out)
+all_vb <- sim_thetacpp(n, simmr_out1$lambda, K, n_isotopes)
 f_VB <- all_vb[,1:K]
+all_vb_r <- sim_thetacpp(n, lambda_out, K, n_isotopes)
+f_VB_r <- all_vb_r[,1:K]
+
+for (i in 1:K) {
+  print(data.frame(
+    f = c(f_VB_r[,i], f_VB[,i]),
+    Fit = c(rep('VB_r', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = f, fill = Fit)) + geom_density(alpha = 0.5) + 
+    ggtitle(paste("f: Iso",i)))
+}
 
 for (i in 1:K) {
   print(data.frame(
@@ -195,6 +196,15 @@ for (i in 1:K) {
 p_fun <- function(x) exp(x)/sum(exp(x))
 p_JAGS <- JAGS_run$BUGSoutput$sims.list$p
 p_VB <- t(apply(all_vb[,1:K], 1, p_fun))
+p_VB_r <- t(apply(all_vb_r[,1:K], 1, p_fun))
+
+for (i in 1:K) {
+  print(data.frame(
+    p = c(p_VB_r[,i], p_VB[,i]),
+    Fit = c(rep('VB_r', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = p, fill = Fit)) + geom_density(alpha = 0.5) +
+    ggtitle(paste("p: Iso",i)))
+}
 
 for (i in 1:K) {
   print(data.frame(
@@ -214,36 +224,3 @@ for (i in 1:n_isotopes) {
   ) %>% ggplot(aes(x = sigma, fill = Fit)) + geom_density(alpha = 0.5) +
     ggtitle(paste("sigma: Iso",i)))
 }
-
-# Now have a look at the values of h over the JAGS and VB output
-h_VB <- apply(all_vb, 1, h)
-JAGS_pars <- cbind(JAGS_run$BUGSoutput$sims.list$f,
-                   JAGS_run$BUGSoutput$sims.list$var_y)
-h_JAGS <- apply(JAGS_pars, 1, h)
-
-data.frame(
-  h = c(h_JAGS, h_VB),
-  Fit = c(rep('JAGS', n), c(rep("VB", n)))
-) %>% ggplot(aes(x = h, fill = Fit)) + geom_density(alpha = 0.5) +
-  ggtitle("log posterior")
-# So VB is getting consistently higher values of the log posterior
-
-# Finally have a look at the two posterior predictives match the data
-mu_JAGS <- p_JAGS%*%mu_kj
-mu_VB <- p_VB%*%mu_kj
-ypp_JAGS <- ypp_VB <- matrix(NA, ncol = n_isotopes, nrow = n)
-colnames(ypp_JAGS) <- colnames(y)
-colnames(ypp_VB) <- colnames(y)
-for(i in 1:n_isotopes) {
-  ypp_JAGS[,i] <- rnorm(n, mean = mu_JAGS[,i], sd = 1/sqrt(tau_JAGS[,i]))
-  ypp_VB[,i] <- rnorm(n, mean = mu_VB[,i], sd = 1/sqrt(tau_VB[,i]))
-}
-
-ggplot() +
-  geom_point(data = as.data.frame(ypp_JAGS), aes(x = d15N, y = d13C), 
-             colour = 'blue', alpha = 0.5) + 
-  geom_point(data = as.data.frame(ypp_VB), aes(x = d15N, y = d13C),
-             colour = 'green', alpha = 0.5) + 
-  geom_point(data = y, aes(x = d15N, y = d13C)) +
-  geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
-

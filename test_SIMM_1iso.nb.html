@@ -1804,16 +1804,22 @@ q &lt;- c(sources$Concd15N[1:4])
 <p>test</p>
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxucmVzPC1ydW5fVkJfY3BwKGxhbWJkYSwgNCwgMSxhcy5tYXRyaXgocSksIGFzLm1hdHJpeChtdV9raiksIGFzLm1hdHJpeChtdV9jKSwgXG4gICAgICBhcy5tYXRyaXgoc2lnbWFfYyksIGFzLm1hdHJpeChzaWdtYV9raiksIGFzLm1hdHJpeCh5KSlcblxuYGBgIn0= -->
-<pre class="r"><code>res&lt;-run_VB_cpp(lambda, 4, 1,as.matrix(q), as.matrix(mu_kj), as.matrix(mu_c), 
-      as.matrix(sigma_c), as.matrix(sigma_kj), as.matrix(y))
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuc2ltX3RoZXRhY3BwKDEwLCBsYW1iZGEsIDQsIDEpXG5cbmBgYCJ9 -->
+<pre class="r"><code>sim_thetacpp(10, lambda, 4, 1)
 </code></pre>
 <!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiXG53YXJuaW5nOiBzb2x2ZSgpOiBzeXN0ZW0gc2VlbXMgc2luZ3VsYXI7IGF0dGVtcHRpbmcgYXBwcm94IHNvbHV0aW9uXG5FcnJvciBpbiBydW5fVkJfY3BwKGxhbWJkYSwgNCwgMSwgYXMubWF0cml4KHEpLCBhcy5tYXRyaXgobXVfa2opLCBhcy5tYXRyaXgobXVfYyksICA6IFxuICBCTEFTL0xBUEFDSyByb3V0aW5lICdETEFTQ0xNT0lFRERMQVNSVERTUCcgZ2F2ZSBlcnJvciBjb2RlIC00XG4ifQ== -->
-<pre><code>
-warning: solve(): system seems singular; attempting approx solution
-Error in run_VB_cpp(lambda, 4, 1, as.matrix(q), as.matrix(mu_kj), as.matrix(mu_c),  : 
-  BLAS/LAPACK routine &#39;DLASCLMOIEDDLASRTDSP&#39; gave error code -4</code></pre>
+<!-- rnb-output-begin eyJkYXRhIjoiICAgICAgICAgICAgWywxXSAgICAgICAgWywyXSAgICAgICBbLDNdICAgICAgICBbLDRdICAgICAgIFssNV1cbiBbMSxdIC0wLjIwNjE4NzUgLTAuMDg0Njc3NTcgIDAuNTczNDE2NyAgMC4wMjU5Mzg1OSAwLjEyOTQyMjQzXG4gWzIsXSAgMC4wNDc1NjIzICAwLjYzMDkzNzE1ICAwLjE2OTU2MTYgLTAuNDY1MzkwMDIgMS4yMjU4ODEyNFxuIFszLF0gLTAuMjUyNjc5MCAtMC4xNjM5NDk4OCAgMC40NTAzMTQ1ICAwLjEzMjM2ODExIDAuMzkwODAxNjRcbiBbNCxdICAwLjE0NzQzNTYgIDAuMDQwNzE3OTAgLTAuMjA0NDgyNSAgMC42NTczNjg2MSAxLjcxODk1MTE3XG4gWzUsXSAgMC4xODMxNDkwIC0wLjcyMzQ3ODAyICAwLjI1ODAxNDQgLTAuMTczOTMwMjQgMC4wMjExODU1M1xuIFs2LF0gLTAuMzkyODMwNCAtMC4wODAxODg0OSAtMC4zNzc0NDU5IC0wLjI2ODE0NDEwIDAuODI2MTQwMTNcbiBbNyxdIC0wLjIyOTkzOTEgLTAuNjIwNDk5NzkgIDAuMzA4MjA0NiAgMC4wNTY0MjI4MiAwLjA2OTYzNzEwXG4gWzgsXSAtMC40MTg2OTcyICAwLjQ2MTI1MjczICAwLjE1Njg4NzQgLTAuMTA4NTUwNzMgMC40NDI3ODY3N1xuIFs5LF0gIDAuMzI5Mjk4MyAgMC4zMjMwNDcyNiAgMC4zMDIyNDI4ICAwLjI1MzMzNjU5IDAuMjQxMTIyMTNcblsxMCxdICAwLjIwMzc3NDkgLTAuMDIyNzc2MDUgLTAuMTEyNTU3NCAtMC4xMzk5Njc0NiAwLjQ3MDE0NTQ4XG4ifQ== -->
+<pre><code>            [,1]        [,2]       [,3]        [,4]       [,5]
+ [1,] -0.2061875 -0.08467757  0.5734167  0.02593859 0.12942243
+ [2,]  0.0475623  0.63093715  0.1695616 -0.46539002 1.22588124
+ [3,] -0.2526790 -0.16394988  0.4503145  0.13236811 0.39080164
+ [4,]  0.1474356  0.04071790 -0.2044825  0.65736861 1.71895117
+ [5,]  0.1831490 -0.72347802  0.2580144 -0.17393024 0.02118553
+ [6,] -0.3928304 -0.08018849 -0.3774459 -0.26814410 0.82614013
+ [7,] -0.2299391 -0.62049979  0.3082046  0.05642282 0.06963710
+ [8,] -0.4186972  0.46125273  0.1568874 -0.10855073 0.44278677
+ [9,]  0.3292983  0.32304726  0.3022428  0.25333659 0.24112213
+[10,]  0.2037749 -0.02277605 -0.1125574 -0.13996746 0.47014548</code></pre>
 <!-- rnb-output-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->

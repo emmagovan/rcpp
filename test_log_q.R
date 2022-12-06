@@ -1,44 +1,19 @@
-# Script to run a fixed form VB model on some stable isotope data with 2 isotopes
-# Note that this doesn't include much maths as it's explained elsewhere
-# The rough structure of this file is:
-# 1. Simulate some data or use a real data set
-# 2. Run JAGS on the data
-# 3. Run FFVB on the data
-# 4. Perform some analysis comparing the results
+hcpp(K, 2, as.matrix(conc), as.matrix(s_means), as.matrix(c_means), 
+     as.matrix(c_sds), as.matrix(s_sds), theta[1,], as.matrix(mix))
 
-# Set up
-rm(list = ls())
-library(R2jags)
+a<-log_q_cpp(theta[1,], lambda, K, 2)
 
-# Simulate some data ------------------------------------------------------
+cons <- read.csv("mantis_consumer.csv")
+disc <- read.csv("mantis_discrimination.csv")
+sources <- read.csv("mantis_source.csv")[c(1,3,5,7,9,11),]
 
-# # Simulate some data
-# set.seed(123)
-# N <- 30
-# K <- 3
-# n_isotopes = 2
-# mu_s <- c(rep(0, K))
-# sigma_s <- diag(K)
-# s <- rmvn(K, mu_s, sigma_s)
-# sig_y <- diag(K)
-# p <- c(0.8, 0.15, 0.05)
-# mix <- matrix(rmvn(N*n_isotopes, sum(p %*% s), sum(p^2 %*%s^2) +1), ncol = 2)
-# 
-
-# Or use simmr data -------------------------------------------------------
-
-mix <- matrix(c(
-  -10.13, -10.72, -11.39, -11.18, -10.81, -10.7, -10.54,
-  -10.48, -9.93, -9.37, 11.59, 11.01, 10.59, 10.97, 11.52, 11.89,
-  11.73, 10.89, 11.05, 12.3
-), ncol = 2, nrow = 10)
-colnames(mix) <- c("d13C", "d15N")
-s_names <- c("Zostera", "Grass", "U.lactuca", "Enteromorpha")
-s_means <- matrix(c(-14, -15.1, -11.03, -14.44, 3.06, 7.05, 13.72, 5.96), ncol = 2, nrow = 4)
-s_sds <- matrix(c(0.48, 0.38, 0.48, 0.43, 0.46, 0.39, 0.42, 0.48), ncol = 2, nrow = 4)
-c_means <- matrix(c(2.63, 1.59, 3.41, 3.04, 3.28, 2.34, 2.14, 2.36), ncol = 2, nrow = 4)
-c_sds <- matrix(c(0.41, 0.44, 0.34, 0.46, 0.46, 0.48, 0.46, 0.66), ncol = 2, nrow = 4)
-conc <- matrix(c(0.02, 0.1, 0.12, 0.04, 0.02, 0.1, 0.09, 0.05), ncol = 2, nrow = 4)
+mix <- cons[,c(1:2)]
+s_names <- sources[,1]
+s_means <- sources[,c(3,5)]
+s_sds <- sources[,c(4,6)]
+c_means <- disc[,c(2,4)]
+c_sds <- disc[,c(3,5)]
+conc <- sources[,c(7:8)]
 
 y <- as.data.frame(mix)
 n <- nrow(y)
@@ -54,11 +29,15 @@ K <- nrow(mu_kj)
 fmean_0 <- c(rep(0, K))
 fsd_0 <- c(rep(1, K))
 
-# # Create an iso-space plot
-ggplot() +
-  geom_point(data = y, aes(x = d15N, y = d13C)) +
-  geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
+lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))
 
+lambda_out <- run_VB_cpp(lambda, K, 2, as.matrix(conc), as.matrix(s_means), 
+                         as.matrix(c_means), as.matrix(c_sds), as.matrix(s_sds), 
+                         as.matrix(mix))
+
+library(R2jags)
+library(tidyverse)
+library(mvnfast)
 # Run JAGS ----------------------------------------------------------------
 
 JAGS_data <- list(
@@ -87,7 +66,6 @@ JAGS_run <- jags(
 
 # plot(JAGS_run)
 # print(JAGS_run)
-
 
 # Run VB ------------------------------------------------------------------
 
@@ -147,6 +125,7 @@ h <- function(theta) {
 # h(theta[1,])
 
 log_q <- function(lambda, theta) {
+  
   mean <- lambda[1:K]
   # K*(K-1) precision terms
   chol_prec <- matrix(0, nrow = K, ncol = K)
@@ -170,18 +149,31 @@ log_q <- function(lambda, theta) {
                         rate = lambda[(((K + (K * (K + 1)) / 2)) + n_isotopes + 1):(((K + (K * (K + 1)) / 2)) + n_isotopes * 2)],
                         log = TRUE
            )))
-}
+} 
+
+#log_q(lambda, theta[1,])
 
 # Now run it!
-lambda_out <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
+lambda_out_r <- run_VB(lambda = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes * 2)))) # Starting value of lambda
+
 
 # Perform comparisons -----------------------------------------------------
 
 # Get all the parameters from JAGS and VB
 f_JAGS <- JAGS_run$BUGSoutput$sims.list$f
 n <- nrow(f_JAGS)
-all_vb <- sim_theta(n, lambda_out)
+all_vb <- sim_thetacpp(n, lambda_out, K, 2)
 f_VB <- all_vb[,1:K]
+all_vb_r <-sim_theta(n, lambda_out_r)
+f_VB_r <- all_vb_r[,1:K]
+
+for (i in 1:K) {
+  print(data.frame(
+    f = c(f_VB_r[,i], f_VB[,i]),
+    Fit = c(rep('VB_r', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = f, fill = Fit)) + geom_density(alpha = 0.5) + 
+    ggtitle(paste("f: Iso",i)))
+}
 
 for (i in 1:K) {
   print(data.frame(
@@ -195,13 +187,22 @@ for (i in 1:K) {
 p_fun <- function(x) exp(x)/sum(exp(x))
 p_JAGS <- JAGS_run$BUGSoutput$sims.list$p
 p_VB <- t(apply(all_vb[,1:K], 1, p_fun))
+p_VB_r <- t(apply(all_vb_r[,1:K], 1, p_fun))
+
+for (i in 1:K) {
+  print(data.frame(
+    p = c(p_VB_r[,i], p_VB[,i]),
+    Fit = c(rep('VB_r', n), c(rep("VB", n)))
+  ) %>% ggplot(aes(x = p, fill = Fit)) + geom_density(alpha = 0.5) +
+    ggtitle(paste("p: source",i)))
+}
 
 for (i in 1:K) {
   print(data.frame(
     p = c(p_JAGS[,i], p_VB[,i]),
     Fit = c(rep('JAGS', n), c(rep("VB", n)))
   ) %>% ggplot(aes(x = p, fill = Fit)) + geom_density(alpha = 0.5) +
-    ggtitle(paste("p: Iso",i)))
+    ggtitle(paste("p: source",i)))
 }
 
 # Try tau
@@ -246,4 +247,6 @@ ggplot() +
              colour = 'green', alpha = 0.5) + 
   geom_point(data = y, aes(x = d15N, y = d13C)) +
   geom_point(data = as.data.frame(mu_kj), aes(x = Meand15N, y = Meand13C), colour = "red", shape = 18, size = 3)
+
+
 

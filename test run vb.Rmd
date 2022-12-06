@@ -453,7 +453,7 @@ delta_lqltcpp(lambda, theta[1,], 0.001, 4)
 e<-nabla_LB_cpp(lambda, theta, 4,2, simmr_in$concentration_means, simmr_in$source_means, simmr_in$correction_means, simmr_in$correction_sds,
                 simmr_in$source_sds, simmr_in$mixtures, c)
 
-s<-sim_thetacpp(100, lambda, 4)
+s<-sim_thetacpp(100, lambda, K, 2)
 
 ######### not working
 
