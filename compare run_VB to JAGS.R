@@ -2,7 +2,7 @@ rm(list = ls())
 library(R2jags)
 library(tidyverse)
 library(Rcpp)
-library(mvnfast)
+library(LaplacesDemon)
 
 #use simmr data -------------------------------------------------------
 
@@ -232,7 +232,7 @@ microbenchmark(r = run_VB(c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_isotopes 
 # Get all the parameters from JAGS and VB
 f_JAGS <- JAGS_run$BUGSoutput$sims.list$f
 n <- nrow(f_JAGS)
-all_vb <- sim_thetacpp(n, res, K, n_isotopes)
+all_vb <- sim_thetacpp(n, simmr_out1$output$`1`$lambdares, K, n_isotopes)
 f_VB <- all_vb[,1:K]
 all_VB_r <- sim_theta(n, lambda_out)
 f_VB_r <-all_VB_r[,1:K]

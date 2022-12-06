@@ -13,6 +13,8 @@ simmr_ffvb_speed_up<-function(simmr_in,
                          1,
                          simmr_in$n_tracers))
 ){
+  #### make sure this has right file name
+  Rcpp::sourceCpp("run_VB_speed_up.cpp")
   
   # Throw a warning if less than 4 observations in a group - 1 is ok as it wil do a solo run
   if (min(table(simmr_in$group)) > 1 & min(table(simmr_in$group)) < 4) warning("At least 1 group has less than 4 observations - either put each observation in an individual group or use informative prior information")
@@ -58,8 +60,7 @@ simmr_ffvb_speed_up<-function(simmr_in,
     concentration_means = simmr_in$concentration_means
     y = curr_mix
     
-    #### make sure this has right file name
-    Rcpp::sourceCpp("run_VB_speed_up.cpp")
+
     
     lambdastart = c(rep(0, K), rep(1, (((K * (K + 1)) / 2) + n_tracers * 2)))
     
@@ -67,26 +68,37 @@ simmr_ffvb_speed_up<-function(simmr_in,
                               source_means, correction_means, correction_sds,
                               source_sds, y)
     
-    thetares[(1+3600*(i-1)):(3600*i),] = sim_thetacpp(n_output, lambdares[,i], K, n_tracers)
+    thetares[(1+3600*(i-1)):(3600*i),] = 
+      sim_thetacpp(n_output, lambdares[,i], K, n_tracers)
+    
   }
+  mylist <- vector("list", length = simmr_in$n_groups)
+  names(mylist) <- levels(simmr_in$group)  
+  p_fun <- function(x) exp(x)/sum(exp(x))
+
   
-  
-  mylist<-list(lambda = lambdares,
-               n_sources = simmr_in$n_sources, 
-               n_tracers = simmr_in$n_tracers,
-               group = simmr_in$n_groups, 
-               source_names = simmr_in$source_names,
-               theta = thetares,
-               groupnames = simmr_in$group,
-               input = simmr_in
+  mylist[[i]]<-list(source_names = simmr_in$source_names,
+                    theta = thetares,
+                    groupnames = simmr_in$group,
+                    lambdares = lambdares,
+                    BUGSoutput = list(
+                      sims.list = list(p = t(apply(thetares[,1:K], 1, p_fun)),
+                                      sigma =  1/sqrt(thetares[,(K+1):(K+n_tracers)])))
+                    
   )
   
-  class(mylist) <- "simmr_ffvb_output"
-  return(mylist)
+  output_all <- vector("list")
+  output_all$input <- simmr_in
+  output_all$output <- mylist
+  
+  class(output_all) <- "simmr_output_ffvb"
+  
+  return(output_all)
+  
 }
 
 #Check
-#simmr_out1 = simmr_ffvb(simmr_in)
+#simmr_out1 = simmr_ffvb_speed_up(simmr_in)
 
 
 
